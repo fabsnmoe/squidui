@@ -97,6 +97,15 @@ jobs:
           SCP_ADMIN_PASSWORD: ci-admin-password
         run: ./scripts/verify-squid.sh
 
+      # Two real proxy nodes, each with its own agent, enrolling and converging
+      # on a policy change (PLAN.md Phase 3).
+      - name: Multi node verification
+        env:
+          SCP_ADMIN_PASSWORD: ci-admin-password
+        run: |
+          docker build -f deployments/agent/Dockerfile -t squid-control-plane/node:dev .
+          ./scripts/verify-nodes.sh
+
       - name: Diagnostics on failure
         if: failure()
         run: |

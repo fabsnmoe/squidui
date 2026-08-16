@@ -12,7 +12,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @scp/shared && npm run build --workspace @scp/api && npm run build --workspace @scp/web",
+    "build": "npm run build --workspace @scp/shared && npm run build --workspace @scp/api && npm run build --workspace @scp/agent && npm run build --workspace @scp/web",
     "build:shared": "npm run build --workspace @scp/shared",
     "test": "npm run test --workspace @scp/shared && npm run test --workspace @scp/api",
     "typecheck": "npm run typecheck --workspaces --if-present",

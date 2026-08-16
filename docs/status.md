@@ -20,6 +20,7 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 | `GET /api/health/ready` | `200 {"status":"ready"}` |
 | `./scripts/verify-e2e.sh` | 44 checks pass |
 | `./scripts/verify-squid.sh` | 38 checks pass against a real Squid and OpenLDAP |
+| `./scripts/verify-nodes.sh` | 26 checks pass across two real proxy nodes with their agents |
 | Web UI | login, dashboard, local user management and the portal verified in a browser |
 
 ### Verified against a real Squid
@@ -104,6 +105,16 @@ caught. All four are fixed and now carry regression tests.
 - Networks, listeners and access rules with CRUD, plus a rule simulator that
   runs the real engine.
 
+### Phase 3 — node agent and enrolment
+- Nodes are declared in the control plane and claim themselves with a one-time
+  enrolment token; only credential hashes are stored.
+- The agent (`apps/agent`, dependency free, shipped as a proxy node image) pulls
+  configuration, writes artefacts with the required ownership, validates with
+  `squid -k parse`, applies with `squid -k reconfigure` and reports back.
+- Configuration drift is detected by comparing a stable configuration hash.
+- Credentials are revocable per node; a revoked node keeps serving what it has.
+- Verified with `scripts/verify-nodes.sh`: 26 checks across two real nodes.
+
 ### Phase 9 — proxy identity and authentication
 - `DISABLED` / `OPTIONAL` / `REQUIRED` understood by backend, IR and UI.
 - Local and LDAP providers behind one adapter interface, a registry with
@@ -120,8 +131,8 @@ caught. All four are fixed and now carry regression tests.
 
 | Area | State | Notes |
 | --- | --- | --- |
-| Phase 3 — node agent and enrollment | not started | No config is delivered to a node yet. The compiler output is reviewable in the UI but not deployed. |
-| Phase 4 — monitoring | not started | Node status exists as a table only. |
+| Per-node configuration | not implemented | Every node receives the same policy. Node groups, site-specific listeners and staged rollouts are not modelled. |
+| Phase 4 — monitoring | partial | Node reachability, apply result and configuration drift are reported. No metrics, no alerting. |
 | Phase 7 — safe deployment, drift detection | not started | `config_versions` are stored; there is no diff view and no rollout. |
 | Phase 8 — logs and traffic | not started | The dashboard reports `available: false` for traffic metrics instead of inventing numbers. |
 | Phase 10-13 — TLS inspection, cache, upstreams, multi-node | not started | |

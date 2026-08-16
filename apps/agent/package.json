@@ -1,0 +1,16 @@
+{
+  "name": "@scp/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node agent: enrols a proxy host, pulls configuration and keeps Squid running it",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

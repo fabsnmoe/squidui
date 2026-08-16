@@ -45,17 +45,21 @@
   --font-weight-semibold: 600;
 
   /* --- Radius ------------------------------------------------------------ */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
   --radius-full: 999px;
 
-  /* --- Elevation --------------------------------------------------------- */
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
-  --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.06);
-  --shadow-lg: 0 12px 16px -4px rgba(16, 24, 40, 0.1), 0 4px 6px -2px rgba(16, 24, 40, 0.05);
-  --shadow-overlay: 0 24px 48px -12px rgba(16, 24, 40, 0.24);
+  /* --- Elevation ---------------------------------------------------------
+     Layered and low opacity: one soft ambient shadow plus a tight contact
+     shadow reads as depth, a single large blur reads as a drop shadow from a
+     decade ago. */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 1px rgba(15, 23, 42, 0.03);
+  --shadow-md: 0 2px 4px -1px rgba(15, 23, 42, 0.05), 0 8px 16px -6px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 4px 8px -2px rgba(15, 23, 42, 0.06), 0 16px 32px -12px rgba(15, 23, 42, 0.12);
+  --shadow-overlay: 0 8px 16px -6px rgba(15, 23, 42, 0.08), 0 32px 64px -24px rgba(15, 23, 42, 0.28);
+  --ring-focus: 0 0 0 3px var(--color-focus-ring-soft);
 
   /* --- Motion ------------------------------------------------------------ */
   --duration-instant: 0ms;
@@ -91,21 +95,24 @@
   --breakpoint-lg: 1024px;
   --breakpoint-xl: 1280px;
 
-  /* --- Semantic colour: light -------------------------------------------- */
-  --color-bg: #f6f7f9;
+  /* --- Semantic colour: light ---------------------------------------------
+     The neutral ramp carries a slight cool hue rather than being pure grey.
+     Pure greys next to a saturated accent look washed out and dated. */
+  --color-bg: #f7f8fa;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
-  --color-surface-overlay: #ffffff;
-  --color-surface-sunken: #f0f2f5;
-  --color-surface-hover: #f3f4f7;
+  --color-surface-overlay: rgba(255, 255, 255, 0.92);
+  --color-surface-sunken: #f1f3f7;
+  --color-surface-hover: #f3f5f9;
+  --color-surface-translucent: rgba(255, 255, 255, 0.82);
 
-  --color-border-subtle: #eceef2;
-  --color-border: #dfe3e9;
-  --color-border-strong: #c3cad5;
+  --color-border-subtle: #eef0f4;
+  --color-border: #e0e4ea;
+  --color-border-strong: #c2c9d4;
 
-  --color-text: #12161c;
-  --color-text-secondary: #4d5766;
-  --color-text-muted: #6b7686;
+  --color-text: #0f172a;
+  --color-text-secondary: #4a5568;
+  --color-text-muted: #6b7280;
   --color-text-inverted: #ffffff;
 
   --color-accent: #4f46e5;
@@ -115,7 +122,8 @@
   --color-accent-text: #4338ca;
 
   --color-focus-ring: #6366f1;
-  --color-overlay-scrim: rgba(16, 20, 28, 0.45);
+  --color-focus-ring-soft: rgba(99, 102, 241, 0.28);
+  --color-overlay-scrim: rgba(15, 23, 42, 0.32);
 
   --color-success-fg: #15803d;
   --color-success-bg: #ecfdf3;
@@ -142,21 +150,24 @@
 
 /* --- Semantic colour: dark ------------------------------------------------ */
 :root[data-theme='dark'] {
-  --color-bg: #0b0d10;
-  --color-surface: #14171c;
-  --color-surface-raised: #191d24;
-  --color-surface-overlay: #1c212a;
-  --color-surface-sunken: #0f1216;
-  --color-surface-hover: #1b1f27;
+  /* Not black: a very dark slate keeps the accent readable and stops the
+     surfaces from looking like an inverted light theme. */
+  --color-bg: #0a0c11;
+  --color-surface: #14171e;
+  --color-surface-raised: #191d26;
+  --color-surface-overlay: rgba(24, 28, 37, 0.92);
+  --color-surface-sunken: #0f121a;
+  --color-surface-hover: #1c2029;
+  --color-surface-translucent: rgba(20, 23, 30, 0.78);
 
-  --color-border-subtle: #1e232b;
-  --color-border: #272d37;
-  --color-border-strong: #3a424f;
+  --color-border-subtle: #1d222c;
+  --color-border: #272d3a;
+  --color-border-strong: #3b4354;
 
-  --color-text: #e9edf3;
-  --color-text-secondary: #a3adbb;
-  --color-text-muted: #7a8493;
-  --color-text-inverted: #0b0d10;
+  --color-text: #eef1f6;
+  --color-text-secondary: #a6b0bf;
+  --color-text-muted: #7b8598;
+  --color-text-inverted: #0a0c11;
 
   --color-accent: #818cf8;
   --color-accent-hover: #a5b4fc;
@@ -165,7 +176,8 @@
   --color-accent-text: #a5b4fc;
 
   --color-focus-ring: #818cf8;
-  --color-overlay-scrim: rgba(0, 0, 0, 0.6);
+  --color-focus-ring-soft: rgba(129, 140, 248, 0.32);
+  --color-overlay-scrim: rgba(2, 4, 8, 0.66);
 
   --color-success-fg: #4ade80;
   --color-success-bg: #05291a;

@@ -1,0 +1,57 @@
+# Proxy node deployment.
+#
+# Copy this file (and nothing else) to the machine that should run Squid, set
+# the two variables, and start it. The host needs Docker and nothing more.
+#
+#   1. In the control plane: Infrastructure -> Nodes -> Add node
+#   2. Issue an enrolment token; the dialog shows the exact command
+#   3. On the proxy host:
+#
+#        export SCP_API_URL=https://control-plane.example.internal
+#        export SCP_ENROLLMENT_TOKEN=scpe_...
+#        docker compose -f compose.yml up -d
+#
+# The token is single use and expires after an hour. Once enrolled, the agent
+# stores its own credential in the scp_agent_state volume and the token is no
+# longer needed - remove it from the environment afterwards.
+#
+# Repeat for every further node. Nothing here is single-node specific.
+
+name: squid-proxy-node
+
+services:
+  proxy:
+    # Built from this repository; see deployments/agent/Dockerfile. Point this
+    # at a checkout, or build the image once and distribute it internally.
+    build:
+      context: ../..
+      dockerfile: deployments/agent/Dockerfile
+    image: squid-control-plane/node:${APP_VERSION:-dev}
+    restart: unless-stopped
+    environment:
+      # Where the control plane is reachable from this host.
+      SCP_API_URL: ${SCP_API_URL:?SCP_API_URL is required}
+      # Only needed until the node is enrolled.
+      SCP_ENROLLMENT_TOKEN: ${SCP_ENROLLMENT_TOKEN:-}
+      SCP_NODE_HOSTNAME: ${SCP_NODE_HOSTNAME:-}
+      SCP_POLL_INTERVAL_SECONDS: ${SCP_POLL_INTERVAL_SECONDS:-30}
+      # Test environments only: accepts a self-signed control plane certificate.
+      SCP_INSECURE_SKIP_TLS_VERIFY: ${SCP_INSECURE_SKIP_TLS_VERIFY:-false}
+    ports:
+      # The proxy port clients connect to. Restrict this with a host firewall
+      # or bind it to an internal address: 3128 on 0.0.0.0 is reachable from
+      # every network that can route here.
+      - "${PROXY_BIND:-0.0.0.0}:${PROXY_PORT:-3128}:3128"
+    volumes:
+      # Holds the agent credential. Losing it means re-enrolling the node.
+      - scp_agent_state:/var/lib/scp-agent
+      - squid_cache:/var/spool/squid
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  scp_agent_state:
+  squid_cache:

@@ -109,6 +109,40 @@ and get a small, separate portal:
 They never see an administration surface: a portal session carries no control
 plane permission and is rejected by every administrative endpoint.
 
+### Proxy nodes — one or many
+
+The control plane runs **separately** from the proxies. Nodes are added in two
+steps and the tenth is the same work as the first:
+
+1. **Declare the node** in `Infrastructure → Nodes` and issue a one-time
+   enrolment token (valid one hour, single use, shown once).
+2. **Run the agent** on the machine that should serve as the proxy:
+
+```bash
+export SCP_API_URL=https://control-plane.example.internal
+export SCP_ENROLLMENT_TOKEN=scpe_...
+
+docker compose -f deployments/agent/compose.yml up -d
+```
+
+That host needs Docker and network access to the control plane — nothing else.
+
+The agent **pulls**: it exchanges the token for its own credential, fetches the
+compiled configuration, writes every artefact with the ownership Squid's
+helpers need, validates with `squid -k parse`, applies it with
+`squid -k reconfigure` and reports back. Consequences worth knowing:
+
+- **No inbound access to the proxy is required.** A node behind NAT or a
+  one-way firewall enrols exactly like one in the next rack.
+- **A broken configuration is never applied.** Validation happens on a staged
+  file; the node keeps serving what it already had and reports the failure.
+- **Policy changes converge on their own.** Change a rule once, every enrolled
+  node picks it up on its next poll.
+- **Drift is visible.** Each node reports the hash of what it runs; the control
+  plane compares it to what it would send and flags the difference.
+- **Credentials are revocable per node**, and revoking one does not disturb the
+  others.
+
 ### Safety and accountability
 
 - **Open proxy detection.** `Authentication = Disabled` together with
@@ -656,7 +690,8 @@ portal, full Docker Compose deployment.
 
 | | |
 | --- | --- |
-| Node agent and enrollment | The compiler output is exported and applied manually; nothing pushes it to a node. |
+| Per-node configuration | Every node receives the same policy. Node groups and site-specific listeners are not modelled yet. |
+| Staged rollouts | A policy change reaches all nodes at once; there is no canary or ring deployment. |
 | Enforcing "anonymous only" in optional mode | Squid challenges on any `proxy_auth` reference, so such a rule also matches authenticated clients. The compiler reports the widening. |
 | Traffic logs and per-user statistics | The UI reports these as unavailable rather than inventing numbers. |
 | TLS inspection, cache and upstream management, multi-node | Planned. |

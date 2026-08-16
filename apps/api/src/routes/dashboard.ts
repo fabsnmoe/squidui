@@ -95,11 +95,4 @@ export async function registerDashboardRoutes(app: FastifyInstance, context: App
     };
   });
 
-  app.get('/nodes', async (request) => {
-    requirePermission(request, 'NODE_READ');
-    const { rows } = await db.query(
-      'select id, name, hostname, status, squid_version, adapter_id, last_seen_at from proxy_nodes order by name',
-    );
-    return { items: rows, total: rows.length };
-  });
 }

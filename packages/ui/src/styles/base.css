@@ -51,10 +51,18 @@ a:hover {
   text-decoration: underline;
 }
 
+/* A soft ring rather than a hard outline: same visibility, current idiom. */
 :focus-visible {
   outline: 2px solid var(--color-focus-ring);
-  outline-offset: 2px;
+  outline-offset: 1px;
+  box-shadow: var(--ring-focus);
   border-radius: var(--radius-sm);
+}
+
+h1, h2, h3 {
+  /* Slightly tightened tracking is what distinguishes a contemporary interface
+     headline from a default browser one. */
+  letter-spacing: -0.014em;
 }
 
 code, pre, kbd {
@@ -157,8 +165,10 @@ code, pre, kbd {
   align-items: center;
   gap: var(--space-3);
   padding: 0 var(--space-5);
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-translucent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--color-border-subtle);
   z-index: var(--z-header);
 }
 
@@ -166,8 +176,8 @@ code, pre, kbd {
   grid-area: sidebar;
   display: flex;
   flex-direction: column;
-  background: var(--color-surface);
-  border-right: 1px solid var(--color-border);
+  background: var(--color-surface-sunken);
+  border-right: 1px solid var(--color-border-subtle);
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -228,6 +238,7 @@ code, pre, kbd {
 }
 
 .scp-nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -248,8 +259,22 @@ code, pre, kbd {
 }
 
 .scp-nav-item[aria-current='page'] {
-  background: var(--color-accent-subtle);
+  background: var(--color-surface);
   color: var(--color-accent-text);
+  box-shadow: var(--shadow-sm);
+}
+
+/* An accent marker on the active item, rather than a filled block. */
+.scp-nav-item[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  background: var(--color-accent);
 }
 
 .scp-nav-item-icon {
@@ -365,10 +390,16 @@ code, pre, kbd {
 .scp-button[data-variant='primary'] {
   background: var(--color-accent);
   color: var(--color-text-inverted);
+  box-shadow: var(--shadow-sm);
 }
 
 .scp-button[data-variant='primary']:hover:not(:disabled) {
   background: var(--color-accent-hover);
+}
+
+/* A small press displacement makes the control feel connected to the click. */
+.scp-button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .scp-button[data-variant='secondary'] {
@@ -643,7 +674,7 @@ code, pre, kbd {
 
 .scp-card {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
@@ -982,10 +1013,18 @@ code, pre, kbd {
   position: fixed;
   inset: 0;
   background: var(--color-overlay-scrim);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: grid;
   place-items: center;
   padding: var(--space-6);
   z-index: var(--z-dialog);
+  animation: scp-fade-in var(--duration-fast) var(--easing-standard);
+}
+
+@keyframes scp-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .scp-dialog {
@@ -993,6 +1032,8 @@ code, pre, kbd {
   max-height: 85vh;
   overflow-y: auto;
   background: var(--color-surface-overlay);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-overlay);
@@ -1087,6 +1128,8 @@ code, pre, kbd {
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   background: var(--color-surface-overlay);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
   border: 1px solid var(--color-border);
   border-left: 3px solid var(--color-accent);
   border-radius: var(--radius-md);
@@ -1114,6 +1157,8 @@ code, pre, kbd {
   height: fit-content;
   max-height: 60vh;
   background: var(--color-surface-overlay);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-overlay);

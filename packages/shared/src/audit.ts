@@ -57,6 +57,17 @@ export const AUDIT_ACTIONS = [
   'LISTENER_DELETED',
   'CONFIG_COMPILED',
   'CONFIG_DEPLOYED',
+
+  // Proxy nodes and their agents
+  'NODE_CREATED',
+  'NODE_UPDATED',
+  'NODE_DELETED',
+  'NODE_ENROLLMENT_TOKEN_ISSUED',
+  'NODE_ENROLLMENT_TOKEN_REVOKED',
+  'NODE_ENROLLED',
+  'NODE_CREDENTIAL_REVOKED',
+  'NODE_CONFIG_APPLIED',
+  'NODE_CONFIG_FAILED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
