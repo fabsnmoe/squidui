@@ -105,6 +105,12 @@ export interface PolicyRule {
   identity: IdentityMatcher;
   destination: DestinationMatcher;
   schedule: ScheduleMatcher;
+  /**
+   * Where the rule applies. Filtering happens while the IR is built, so the
+   * compiler only ever sees rules that belong on this node; the scope is
+   * carried along so the review surface can explain why a rule is there.
+   */
+  scope?: { kind: "GLOBAL" } | { kind: "NODE_GROUP"; groupIds: string[]; groupNames: string[] };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -113,14 +119,32 @@ export interface PolicyRule {
 
 export type ListenerMode = 'FORWARD' | 'INTERCEPT';
 
+/**
+ * Authentication is decided per listener (ADR 0003).
+ *
+ * `INHERIT` only exists in the stored profile; by the time a listener reaches
+ * the IR the mode is resolved against the global default, so nothing
+ * downstream has to know the hierarchy existed.
+ */
+export type ListenerAuthenticationMode = AuthenticationMode;
+
 export interface Listener {
   id: string;
   name: string;
+  /** Stable identifier used as the Squid port name and in ACL names. */
+  key: string;
   /** Bind address, e.g. `0.0.0.0`, `::`, `10.0.0.5`. */
   address: string;
   port: number;
   mode: ListenerMode;
   enabled: boolean;
+  /** Already resolved: never `INHERIT` at this point. */
+  authentication: ListenerAuthenticationMode;
+  /**
+   * Traffic arriving on this listener from anywhere else is refused before any
+   * rule runs. Empty means every source.
+   */
+  sourceNetworks: NamedNetwork[];
 }
 
 export interface IrAuthenticationProvider {
@@ -172,9 +196,18 @@ export interface AuthenticationIr {
   localGroupMembers: Record<string, string[]>;
 }
 
+/** Which node this IR was built for. Null for a fleet-wide preview. */
+export interface IrNodeContext {
+  id: string;
+  name: string;
+  groupId: string | null;
+  groupName: string | null;
+}
+
 export interface ConfigurationIr {
   irVersion: string;
   generatedAt: string;
+  node: IrNodeContext | null;
   authentication: AuthenticationIr;
   defaultAccess: PolicyAction;
   listeners: Listener[];
@@ -185,6 +218,7 @@ export function createEmptyIr(overrides: Partial<ConfigurationIr> = {}): Configu
   return {
     irVersion: IR_VERSION,
     generatedAt: new Date(0).toISOString(),
+    node: null,
     authentication: {
       mode: 'DISABLED',
       realm: 'Squid Proxy',

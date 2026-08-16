@@ -59,7 +59,7 @@ describe('compiler - authentication disabled', () => {
   const ir = createEmptyIr({
     authentication: { mode: 'DISABLED', realm: 'Squid', providers: [], localGroupMembers: {} },
     defaultAccess: 'ALLOW',
-    listeners: [{ id: 'l', name: 'Default', address: '0.0.0.0', port: 3128, mode: 'FORWARD', enabled: true }],
+    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '0.0.0.0', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'DISABLED', sourceNetworks: [] }],
     rules: [rule({ id: 'r1', position: 10, name: 'Allow any' })],
   });
 
@@ -94,7 +94,7 @@ describe('compiler - required mode with the local provider', () => {
       localGroupMembers: { Services: ['service-api', 'service-batch'] },
     },
     defaultAccess: 'DENY',
-    listeners: [{ id: 'l', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true }],
+    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', sourceNetworks: [] }],
     rules: [
       rule({
         id: 'r10',
@@ -117,7 +117,7 @@ describe('compiler - required mode with the local provider', () => {
 
   it('challenges unauthenticated clients before any rule', () => {
     const conf = compile(ir).squidConf;
-    const challengeIndex = conf.indexOf('http_access deny !scp_authenticated');
+    const challengeIndex = conf.indexOf('http_access deny scp_lp_default !scp_authenticated');
     const ruleIndex = conf.indexOf('# Rule 10');
     expect(challengeIndex).toBeGreaterThan(-1);
     expect(challengeIndex).toBeLessThan(ruleIndex);
@@ -189,7 +189,7 @@ describe('compiler - multiple providers in parallel', () => {
       localGroupMembers: {},
     },
     defaultAccess: 'DENY',
-    listeners: [{ id: 'l', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true }],
+    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', sourceNetworks: [] }],
     rules: [rule({ id: 'r10', position: 10, identity: { kind: 'AUTHENTICATED' } })],
   });
 
@@ -245,7 +245,7 @@ describe('compiler - LDAP groups', () => {
       localGroupMembers: {},
     },
     defaultAccess: 'DENY',
-    listeners: [{ id: 'l', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true }],
+    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', sourceNetworks: [] }],
     rules: [
       rule({
         id: 'r10',
@@ -292,7 +292,12 @@ describe('compiler - unauthenticated identity', () => {
         localGroupMembers: {},
       },
       defaultAccess: 'DENY',
-      listeners: [{ id: 'l', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true }],
+      // A corporate listener next to a guest one: that mixture is what makes the
+      // identity mode optional now, rather than a global switch.
+      listeners: [
+        { id: 'l1', key: 'corporate', name: 'Corporate', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', sourceNetworks: [] },
+        { id: 'l2', key: 'guest', name: 'Guest', address: '10.0.0.5', port: 3129, mode: 'FORWARD', enabled: true, authentication: 'DISABLED', sourceNetworks: [] },
+      ],
       rules,
     });
 
@@ -316,7 +321,14 @@ describe('compiler - unauthenticated identity', () => {
         }),
       ]),
     );
-    expect(result.squidConf).not.toContain('!scp_authenticated');
+    // The corporate listener guard legitimately references proxy_auth; what must
+    // not happen is the *rule* doing so, because that challenges the very
+    // clients it is meant to admit.
+    const ruleLine = result.squidConf
+      .split(String.fromCharCode(10))
+      .find((line) => line.startsWith('http_access allow scp_net_guest'));
+    expect(ruleLine).toBeDefined();
+    expect(ruleLine).not.toContain('scp_authenticated');
     expect(result.squidConf).toContain('http_access allow scp_net_guest scp_dst_r10_port');
   });
 
@@ -331,7 +343,7 @@ describe('compiler - unauthenticated identity', () => {
     const ir = createEmptyIr({
       authentication: { mode: 'REQUIRED', realm: 'Squid', providers: [localProvider], localGroupMembers: {} },
       defaultAccess: 'DENY',
-      listeners: [{ id: 'l', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true }],
+      listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', sourceNetworks: [] }],
       rules: [rule({ id: 'r10', position: 10, identity: { kind: 'UNAUTHENTICATED' } })],
     });
     const result = compile(ir);

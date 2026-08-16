@@ -116,23 +116,28 @@ export async function registerNodeRoutes(app: FastifyInstance, context: AppConte
   const { db, config } = context;
 
   /** Hash of the configuration every node should currently be running. */
-  async function currentConfigurationHash(): Promise<string> {
+  async function currentConfigurationHash(nodeId?: string): Promise<string> {
     const registry = await AuthenticationProviderRegistry.load(db, config);
     const compiled = await compileCurrentConfiguration(db, registry, {
       generatorVersion: config.build.appVersion,
       includeSecrets: true,
       secretEncryptionKey: config.secretEncryptionKey,
+      ...(nodeId ? { nodeId } : {}),
     });
     return configurationHash(compiled.squidConf, compiled.artefacts);
   }
 
   app.get('/nodes', async (request) => {
     requirePermission(request, 'NODE_READ');
-    const [{ rows }, hash] = await Promise.all([
-      db.query<NodeRow>(`${NODE_SELECT} order by n.name`),
-      currentConfigurationHash(),
-    ]);
-    const items = rows.map((row) => toNode(row, hash));
+    const { rows } = await db.query<NodeRow>(`${NODE_SELECT} order by n.name`);
+
+    // One compile per node. Correct rather than cheap: with per-group listener
+    // profiles there is no single "current" configuration to compare against.
+    // If a large fleet makes this slow, cache by group rather than by node.
+    const items = await Promise.all(
+      rows.map(async (row) => toNode(row, await currentConfigurationHash(row.id))),
+    );
+
     return {
       items,
       total: items.length,
@@ -156,7 +161,7 @@ export async function registerNodeRoutes(app: FastifyInstance, context: AppConte
     const { rows } = await db.query<NodeRow>(`${NODE_SELECT} where n.id = $1`, [id]);
     const node = rows[0];
     if (!node) throw notFound('Node not found.');
-    return toNode(node, await currentConfigurationHash());
+    return toNode(node, await currentConfigurationHash(node.id));
   });
 
   app.post('/nodes', async (request, reply) => {
@@ -191,7 +196,7 @@ export async function registerNodeRoutes(app: FastifyInstance, context: AppConte
     });
 
     const { rows: created } = await db.query<NodeRow>(`${NODE_SELECT} where n.id = $1`, [nodeId]);
-    return reply.status(201).send(toNode(created[0] as NodeRow, await currentConfigurationHash()));
+    return reply.status(201).send(toNode(created[0] as NodeRow, await currentConfigurationHash(nodeId)));
   });
 
   app.patch('/nodes/:id', async (request) => {

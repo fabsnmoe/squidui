@@ -232,3 +232,24 @@ follow-up: invalid configuration, a node disappearing mid-deployment, a failing
 reconfigure, a failing health check, a failing canary, and the rollback path
 itself.
 
+
+## Open defect — phase 6.5 in progress
+
+`scripts/verify-nodes.sh` fails two checks after the listener profile change:
+an anonymous client receives `200` where it should receive `407`.
+
+What is verified as correct:
+
+- the generated configuration contains the port name, the `myportname` ACL and
+  the guard `http_access deny scp_lp_<name> !scp_authenticated`,
+- the listener resolves to `REQUIRED` in the IR,
+- both nodes report themselves in sync.
+
+So the compiler output looks right and the node claims to be running it. What
+has **not** been established is whether the node actually applied that
+configuration at the moment of the request, or whether Squid evaluates the
+guard as intended with the port name in use. Not yet diagnosed, deliberately
+not guessed at.
+
+Until this is closed, phase 6.5 is **not** done, and the per-listener
+authentication path must not be considered working.

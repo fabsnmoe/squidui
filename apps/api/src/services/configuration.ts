@@ -38,6 +38,8 @@ interface RuleRow {
   identity: unknown;
   destination: unknown;
   schedule: unknown;
+  scope: 'GLOBAL' | 'NODE_GROUP';
+  scope_group_ids: string[];
 }
 
 export interface IrBuildResult {
@@ -46,11 +48,36 @@ export interface IrBuildResult {
   issues: string[];
 }
 
+export interface BuildIrOptions {
+  /** Build the configuration for one node. Omitted for a fleet-wide preview. */
+  nodeId?: string;
+}
+
 export async function buildIr(
   db: Db,
   registry: AuthenticationProviderRegistry,
+  options: BuildIrOptions = {},
 ): Promise<IrBuildResult> {
   const issues: string[] = [];
+
+  // Which node, and therefore which group, this configuration is for. Without
+  // a node only what applies everywhere is included, which is what the
+  // fleet-wide preview should show.
+  let node: { id: string; name: string; groupId: string | null; groupName: string | null } | null = null;
+  if (options.nodeId) {
+    const { rows } = await db.query<{ id: string; name: string; group_id: string | null; group_name: string | null }>(
+      `select n.id, n.name, n.group_id, g.name as group_name
+       from proxy_nodes n left join node_groups g on g.id = n.group_id
+       where n.id = $1`,
+      [options.nodeId],
+    );
+    const row = rows[0];
+    if (row) {
+      node = { id: row.id, name: row.name, groupId: row.group_id, groupName: row.group_name };
+    }
+  }
+  const nodeGroupId = node?.groupId ?? null;
+
 
   const { rows: configRows } = await db.query<{
     mode: 'DISABLED' | 'OPTIONAL' | 'REQUIRED';
@@ -99,6 +126,9 @@ export async function buildIr(
     (localGroupMembers[row.group_name] ??= []).push(row.username);
   }
 
+  // Listener profiles are the source of truth (ADR 0003). A profile with no
+  // group applies everywhere; otherwise it belongs to the node's group. Without
+  // a node the fleet-wide preview shows the profiles that apply to everyone.
   const { rows: listenerRows } = await db.query<{
     id: string;
     name: string;
@@ -106,19 +136,41 @@ export async function buildIr(
     port: number;
     mode: 'FORWARD' | 'INTERCEPT';
     enabled: boolean;
-  }>('select id, name, address, port, mode, enabled from listeners order by name');
+    authentication_mode: 'INHERIT' | 'DISABLED' | 'OPTIONAL' | 'REQUIRED';
+    source_network_ids: string[];
+    group_id: string | null;
+  }>(
+    `select id, name, address, port, mode, enabled, authentication_mode, source_network_ids, group_id
+     from listener_profiles
+     where group_id is null or group_id = $1
+     order by port, name`,
+    [nodeGroupId],
+  );
+
   const listeners: Listener[] = listenerRows.map((row) => ({
     id: row.id,
+    // Squid needs a port name that is stable and unique within the file.
+    key: `${row.name}-${row.port}`,
     name: row.name,
     address: row.address,
     port: row.port,
     mode: row.mode,
     enabled: row.enabled,
+    // INHERIT is resolved here so nothing downstream has to know the hierarchy
+    // existed.
+    authentication: row.authentication_mode === 'INHERIT' ? authConfig.mode : row.authentication_mode,
+    sourceNetworks: (row.source_network_ids ?? [])
+      .map((id) => networksById.get(id))
+      .filter((network): network is { id: string; name: string; cidrs: string[] } => Boolean(network)),
   }));
 
+
   const { rows: ruleRows } = await db.query<RuleRow>(
-    `select id, position, name, description, enabled, action, source, identity, destination, schedule
-     from access_rules order by position, id`,
+    `select id, position, name, description, enabled, action, source, identity, destination, schedule, scope, scope_group_ids
+     from access_rules
+     where scope = 'GLOBAL' or ($1::uuid is not null and $1 = any(scope_group_ids))
+     order by position, id`,
+    [nodeGroupId],
   );
 
   const toGroupRef = (groupId: string, depth = 0): IdentityGroupRef | null => {
@@ -145,11 +197,16 @@ export async function buildIr(
     identity: resolveIdentity(row.identity, usersById, toGroupRef, row.name, issues),
     destination: resolveDestination(row.destination),
     schedule: resolveSchedule(row.schedule),
+    scope:
+      row.scope === 'NODE_GROUP'
+        ? { kind: 'NODE_GROUP' as const, groupIds: row.scope_group_ids ?? [], groupNames: [] }
+        : { kind: 'GLOBAL' as const },
   }));
 
   const ir = createEmptyIr({
     irVersion: IR_VERSION,
     generatedAt: new Date().toISOString(),
+    node,
     authentication: {
       mode: authConfig.mode,
       realm: authConfig.realm,
@@ -278,9 +335,11 @@ export async function compileCurrentConfiguration(
      */
     includeSecrets?: boolean;
     secretEncryptionKey?: Buffer;
+    /** Compile for one node rather than fleet-wide. */
+    nodeId?: string;
   } = {},
 ): Promise<CompileResult> {
-  const { ir, issues } = await buildIr(db, registry);
+  const { ir, issues } = await buildIr(db, registry, options.nodeId ? { nodeId: options.nodeId } : {});
 
   const { rows: users } = await db.query<{
     username: string;

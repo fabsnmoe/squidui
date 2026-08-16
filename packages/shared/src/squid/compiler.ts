@@ -136,7 +136,21 @@ export function compileConfiguration(
   const artefacts: ConfigArtefact[] = [];
   const names = new NameAllocator();
 
-  const authEnabled = ir.authentication.mode !== 'DISABLED';
+  // Authentication is a per listener decision now (ADR 0003). The helper is
+  // configured once, but which ports demand an identity is an ACL on the port
+  // name - that is what makes a corporate and a guest listener coexist.
+  const activeListeners = ir.listeners.filter((listener) => listener.enabled);
+  const authEnabled = activeListeners.some((listener) => listener.authentication !== "DISABLED");
+  // What the rule compiler should assume about identities, derived from the
+  // listeners rather than from a global switch: no listener with auth means an
+  // identity can never be known, every listener requiring it means one always
+  // is, anything in between is the mixed case.
+  const effectiveIdentityMode: AuthenticationMode = !authEnabled
+    ? 'DISABLED'
+    : activeListeners.every((listener) => listener.authentication === 'REQUIRED')
+      ? 'REQUIRED'
+      : 'OPTIONAL';
+
   const providers = [...ir.authentication.providers].sort(
     (a, b) => a.priority - b.priority || a.key.localeCompare(b.key),
   );
@@ -178,7 +192,7 @@ export function compileConfiguration(
   out.push('http_access deny manager');
 
   /* --- authentication --------------------------------------------------- */
-  section(`Proxy authentication - mode ${ir.authentication.mode}`);
+  section(`Proxy authentication - ${activeListeners.filter((l) => l.authentication !== 'DISABLED').length} of ${activeListeners.length} listeners require an identity`);
   if (!authEnabled) {
     out.push('# Authentication is disabled: Squid never requests proxy credentials.');
     if (providers.length > 0) {
@@ -382,11 +396,64 @@ export function compileConfiguration(
     out.push(...scheduleLines);
   }
 
+  /* --- listeners -------------------------------------------------------- */
+  // Emitted before the access rules because the rules reference the port ACLs.
+  section('Listeners');
+  if (activeListeners.length === 0) {
+    out.push('# No listener configured.');
+    warnings.push({ code: 'NO_LISTENER', message: 'No listener is configured; Squid will not accept traffic.' });
+  }
+
+  const listenerAcl = new Map<string, string>();
+  const listenerGuards: string[] = [];
+
+  for (const listener of ir.listeners) {
+    if (!listener.enabled) {
+      out.push(`# Listener "${listener.name}" is disabled.`);
+      continue;
+    }
+
+    const bind =
+      listener.address.includes(':') && !listener.address.startsWith('[')
+        ? `[${listener.address}]:${listener.port}`
+        : `${listener.address}:${listener.port}`;
+    const portName = slug(listener.key || listener.name);
+    const aclName = names.take(`scp_lp_${portName}`);
+    listenerAcl.set(listener.id, aclName);
+
+    out.push(
+      `http_port ${bind} name=${portName}${listener.mode === 'INTERCEPT' ? ' intercept' : ''}` +
+        `  # ${listener.name} (${listener.authentication.toLowerCase()})`,
+    );
+    // myportname, not the port number: two listeners may share a port on
+    // different addresses, and the name is what the profile owns.
+    out.push(`acl ${aclName} myportname ${portName}`);
+
+    const cidrs = listener.sourceNetworks.flatMap((network) => network.cidrs).filter(Boolean);
+    if (cidrs.length > 0) {
+      const srcAcl = names.take(`scp_lpsrc_${portName}`);
+      out.push(`acl ${srcAcl} src ${cidrs.join(' ')}`);
+      listenerGuards.push(
+        `http_access deny ${aclName} !${srcAcl}  # ${listener.name}: only its own source networks`,
+      );
+    }
+
+    if (listener.authentication === 'REQUIRED') {
+      // Scoped to this listener, so a guest port next to it is never
+      // challenged - which is the whole point of moving auth onto the listener.
+      listenerGuards.push(
+        `http_access deny ${aclName} !scp_authenticated  # ${listener.name}: credentials required`,
+      );
+    }
+  }
+
   /* --- access rules ----------------------------------------------------- */
   section('Access rules');
-  if (ir.authentication.mode === 'REQUIRED') {
-    out.push('# Mode REQUIRED: clients without credentials are challenged before any rule runs.');
-    out.push('http_access deny !scp_authenticated');
+  if (listenerGuards.length > 0) {
+    out.push('# Listener guards. Evaluated before any rule, so a listener that requires');
+    out.push('# credentials challenges only its own clients and a guest listener next to');
+    out.push('# it is never asked for any.');
+    for (const guard of listenerGuards) out.push(guard);
     out.push('');
   }
 
@@ -402,7 +469,7 @@ export function compileConfiguration(
       rule,
       groupAcl,
       userAclByRule,
-      ir.authentication.mode,
+      effectiveIdentityMode,
       warnings,
     );
     if (identityTerms === null) {
@@ -411,7 +478,7 @@ export function compileConfiguration(
     }
 
     if (
-      ir.authentication.mode === 'OPTIONAL' &&
+      effectiveIdentityMode === 'OPTIONAL' &&
       rule.identity.kind === 'UNAUTHENTICATED' &&
       sawAuthenticatedRule
     ) {
@@ -446,23 +513,6 @@ export function compileConfiguration(
   out.push('');
   out.push(`# Default access policy`);
   out.push(ir.defaultAccess === 'ALLOW' ? 'http_access allow all' : 'http_access deny all');
-
-  /* --- listeners -------------------------------------------------------- */
-  section('Listeners');
-  if (ir.listeners.length === 0) {
-    out.push('# No listener configured.');
-    warnings.push({ code: 'NO_LISTENER', message: 'No listener is configured; Squid will not accept traffic.' });
-  }
-  for (const listener of ir.listeners) {
-    if (!listener.enabled) {
-      out.push(`# Listener "${listener.name}" is disabled.`);
-      continue;
-    }
-    const bind = listener.address.includes(':') && !listener.address.startsWith('[')
-      ? `[${listener.address}]:${listener.port}`
-      : `${listener.address}:${listener.port}`;
-    out.push(`http_port ${bind}${listener.mode === 'INTERCEPT' ? ' intercept' : ''}  # ${listener.name}`);
-  }
 
   section('Operational defaults');
   out.push('coredump_dir /var/spool/squid');
@@ -582,7 +632,7 @@ function buildIdentityTerms(
           'as it evaluates any condition backed by proxy_auth, so the identity condition is omitted and the rule ' +
           'is decided by its source, destination and schedule alone. Authenticated clients meeting the same ' +
           'conditions therefore match it too. Use a dedicated listener for anonymous clients if the distinction ' +
-          'must be enforced.',
+          'must be enforced: give anonymous clients their own listener profile with authentication disabled.',
       });
       return [];
     }

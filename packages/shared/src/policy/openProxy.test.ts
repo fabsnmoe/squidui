@@ -4,14 +4,26 @@ import { createEmptyIr, type ConfigurationIr, type Listener, type PolicyRule } f
 
 const publicListener: Listener = {
   id: 'l1',
+  key: 'default',
   name: 'Default',
   address: '0.0.0.0',
   port: 3128,
   mode: 'FORWARD',
   enabled: true,
+  authentication: 'DISABLED',
+  sourceNetworks: [],
 };
 
 const privateListener: Listener = { ...publicListener, id: 'l2', address: '10.0.0.5' };
+
+/** Same listener, but one that demands an identity. */
+const authenticatedListener: Listener = {
+  ...publicListener,
+  id: 'l3',
+  key: 'corporate',
+  name: 'Corporate',
+  authentication: 'REQUIRED',
+};
 
 function allowAnyRule(overrides: Partial<PolicyRule> = {}): PolicyRule {
   return {
@@ -44,7 +56,7 @@ describe('open proxy detection', () => {
     expect(openProxy).toBeDefined();
     expect(openProxy?.severity).toBe('CRITICAL');
     expect(openProxy?.detail).toContain('unauthenticated open proxy');
-    expect(openProxy?.evidence).toContain('Authentication mode: DISABLED');
+    expect(openProxy?.evidence).toContain('Listeners without authentication: Default');
     expect(openProxy?.evidence).toContain('Default access: ALLOW');
     expect(hasOpenProxyFinding(findings)).toBe(true);
   });
@@ -82,7 +94,7 @@ describe('open proxy detection', () => {
     expect(findings.map((finding) => finding.code)).toContain('ANONYMOUS_ACCESS');
   });
 
-  it('does not flag an open proxy when authentication is required', () => {
+  it('does not flag an open proxy when every listener demands an identity', () => {
     const findings = detectSecurityFindings(
       createEmptyIr({
         authentication: {
@@ -100,14 +112,14 @@ describe('open proxy detection', () => {
           localGroupMembers: {},
         },
         defaultAccess: 'ALLOW',
-        listeners: [publicListener],
+        listeners: [authenticatedListener],
         rules: [allowAnyRule()],
       }),
     );
     expect(hasOpenProxyFinding(findings)).toBe(false);
   });
 
-  it('warns about rules that can never match because authentication is off', () => {
+  it('warns about rules that can never match because no listener asks for an identity', () => {
     const findings = detectSecurityFindings(
       disabledAuthIr({
         defaultAccess: 'DENY',
@@ -117,11 +129,11 @@ describe('open proxy detection', () => {
     expect(findings.map((finding) => finding.code)).toContain('UNREACHABLE_IDENTITY_RULE');
   });
 
-  it('flags an enabled authentication mode without any provider', () => {
+  it('flags a listener that demands an identity while no provider is enabled', () => {
     const findings = detectSecurityFindings(
       createEmptyIr({
         authentication: { mode: 'REQUIRED', realm: 'Squid', providers: [], localGroupMembers: {} },
-        listeners: [privateListener],
+        listeners: [{ ...authenticatedListener, address: '10.0.0.5' }],
       }),
     );
     expect(findings.map((finding) => finding.code)).toContain('NO_ENABLED_PROVIDER');

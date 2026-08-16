@@ -71,9 +71,17 @@ function widestSourceDescription(rule: PolicyRule): { description: string; wide:
 
 export function detectSecurityFindings(ir: ConfigurationIr): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
-  const authDisabled = ir.authentication.mode === 'DISABLED';
+  // A listener without authentication is what makes anonymous access possible,
+  // not a global switch (ADR 0003).
+  const anonymousListeners = ir.listeners.filter(
+    (listener) => listener.enabled && listener.authentication === 'DISABLED',
+  );
+  const authDisabled = anonymousListeners.length > 0;
+  const needsProviders = ir.listeners.some(
+    (listener) => listener.enabled && listener.authentication !== 'DISABLED',
+  );
 
-  const wideListeners = ir.listeners.filter(listenerIsWidelyReachable);
+  const wideListeners = anonymousListeners.filter(listenerIsWidelyReachable);
   const listenerEvidence = wideListeners.map(
     (listener) => `${listener.name}: ${listener.address}:${listener.port} (${listener.mode})`,
   );
@@ -84,7 +92,9 @@ export function detectSecurityFindings(ir: ConfigurationIr): SecurityFinding[] {
     const defaultAllows = ir.defaultAccess === 'ALLOW';
 
     if (defaultAllows || openRules.length > 0) {
-      const evidence: string[] = ['Authentication mode: DISABLED'];
+      const evidence: string[] = [
+        `Listeners without authentication: ${anonymousListeners.map((l) => l.name).join(', ')}`,
+      ];
       if (defaultAllows) evidence.push('Default access: ALLOW');
       for (const rule of openRules) {
         evidence.push(
@@ -113,7 +123,7 @@ export function detectSecurityFindings(ir: ConfigurationIr): SecurityFinding[] {
           'Authentication is disabled and rules allow access without credentials. ' +
           'Access is limited to the configured private source networks.',
         evidence: [
-          'Authentication mode: DISABLED',
+          `Listeners without authentication: ${anonymousListeners.map((l) => l.name).join(', ')}`,
           ...anonymousRules.map(
             (rule) => `Rule ${rule.position} "${rule.name}" allows ${widestSourceDescription(rule).description}`,
           ),
@@ -125,7 +135,9 @@ export function detectSecurityFindings(ir: ConfigurationIr): SecurityFinding[] {
   // Rules that can never match, because they need an identity that will never
   // exist in the current mode. Silent dead rules are a common source of
   // "why is my policy not working".
-  if (authDisabled) {
+  // Only when *no* listener can produce an identity. With a corporate listener
+  // next to a guest one these rules are perfectly reachable.
+  if (!needsProviders) {
     const deadRules = ir.rules.filter(
       (rule) =>
         rule.enabled &&
@@ -137,17 +149,17 @@ export function detectSecurityFindings(ir: ConfigurationIr): SecurityFinding[] {
       findings.push({
         code: 'UNREACHABLE_IDENTITY_RULE',
         severity: 'WARNING',
-        title: 'Rules require an identity while authentication is disabled',
+        title: 'Rules require an identity, but no listener asks for one',
         detail:
           'These rules can never match: with authentication disabled Squid never learns a user ' +
-          'identity. Either switch the mode to OPTIONAL or REQUIRED, or change the rules to ' +
-          'match on source networks instead.',
+          'identity. Either give a listener an authentication mode other than disabled, or change the ' +
+          'rules to match on source networks instead.',
         evidence: deadRules.map((rule) => `Rule ${rule.position} "${rule.name}" (${rule.identity.kind})`),
       });
     }
   }
 
-  if (ir.authentication.mode !== 'DISABLED' && ir.authentication.providers.length === 0) {
+  if (needsProviders && ir.authentication.providers.length === 0) {
     findings.push({
       code: 'NO_ENABLED_PROVIDER',
       severity: 'CRITICAL',
@@ -155,7 +167,7 @@ export function detectSecurityFindings(ir: ConfigurationIr): SecurityFinding[] {
       detail:
         'No authentication provider is enabled, so no client can authenticate. In REQUIRED mode ' +
         'this denies every request.',
-      evidence: [`Authentication mode: ${ir.authentication.mode}`, 'Enabled providers: none'],
+      evidence: ['At least one listener requires an identity', 'Enabled providers: none'],
     });
   }
 

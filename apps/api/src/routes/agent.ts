@@ -85,13 +85,16 @@ export async function registerAgentRoutes(app: FastifyInstance, context: AppCont
   }
 
   /** Compiles once per request; the agent only refetches when the hash differs. */
-  async function currentBundle(adapterId: string) {
+  async function currentBundle(adapterId: string, nodeId: string) {
     const registry = await AuthenticationProviderRegistry.load(db, config);
     const compiled = await compileCurrentConfiguration(db, registry, {
       adapterId,
       generatorVersion: config.build.appVersion,
       includeSecrets: true,
       secretEncryptionKey: config.secretEncryptionKey,
+      // The node decides which listener profiles and group-scoped policies
+      // apply, so the bundle is built for it rather than for the fleet.
+      nodeId,
     });
     return { compiled, hash: configurationHash(compiled.squidConf, compiled.artefacts) };
   }
@@ -181,7 +184,7 @@ export async function registerAgentRoutes(app: FastifyInstance, context: AppCont
   app.get('/agent/config', async (request) => {
     const agent = await authenticateAgent(request);
     const adapter = getSquidAdapter(agent.adapterId);
-    const { compiled, hash } = await currentBundle(agent.adapterId);
+    const { compiled, hash } = await currentBundle(agent.adapterId, agent.nodeId);
 
     await db.query('update proxy_nodes set last_seen_at = now() where id = $1', [agent.nodeId]);
 
