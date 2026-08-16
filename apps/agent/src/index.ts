@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, open, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 /**
@@ -38,6 +38,8 @@ interface StoredState {
   nodeId: string;
   nodeName: string;
   appliedHash?: string;
+  /** Byte offset in the access log up to which lines have been shipped. */
+  logOffset?: number;
 }
 
 interface Artefact {
@@ -55,6 +57,7 @@ interface ConfigBundle {
   squidConf: string;
   artefacts: Artefact[];
   squid: { confPath: string; binary: string };
+  accessLogPath?: string;
   warnings: Array<{ code: string; message: string }>;
 }
 
@@ -313,6 +316,70 @@ async function report(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Access log shipping                                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Bounded so a backlog cannot turn into one enormous request. */
+const MAX_READ_BYTES = 512 * 1024;
+const MAX_LINES_PER_REQUEST = 500;
+
+/**
+ * Ships new access log lines to the control plane.
+ *
+ * Reads forward from a stored byte offset rather than following the file, so a
+ * restart resumes where it stopped instead of re-shipping everything. Only
+ * whole lines are sent: a partial write at the end of the file is left for the
+ * next cycle. Raw lines go over the wire unparsed - the format is the control
+ * plane's business, which is what keeps a format change from requiring a fleet
+ * wide agent update.
+ */
+async function shipLogs(config: AgentConfig, state: StoredState, logPath: string): Promise<void> {
+  let size: number;
+  try {
+    size = (await stat(logPath)).size;
+  } catch {
+    return; // Squid has not written anything yet.
+  }
+
+  let offset = state.logOffset ?? 0;
+  if (size < offset) {
+    // The file shrank, so it was rotated. Start over rather than reading from
+    // an offset that now points into the middle of a new file.
+    log('info', 'access log rotated, resuming from the start');
+    offset = 0;
+  }
+  if (size === offset) return;
+
+  const handle = await open(logPath, 'r');
+  try {
+    const length = Math.min(size - offset, MAX_READ_BYTES);
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, offset);
+    const text = buffer.toString('utf8');
+
+    const lastNewline = text.lastIndexOf('\n');
+    if (lastNewline === -1) return; // no complete line yet
+    const complete = text.slice(0, lastNewline);
+    const lines = complete.split('\n').filter((line) => line.trim() !== '');
+
+    for (let index = 0; index < lines.length; index += MAX_LINES_PER_REQUEST) {
+      const chunk = lines.slice(index, index + MAX_LINES_PER_REQUEST);
+      await call(config, '/agent/logs', {
+        method: 'POST',
+        agentKey: state.agentKey,
+        body: { lines: chunk },
+      });
+    }
+
+    state.logOffset = offset + Buffer.byteLength(complete, 'utf8') + 1;
+    await writeState(config, state);
+    if (lines.length > 0) log('info', `shipped ${lines.length} access log lines`);
+  } finally {
+    await handle.close();
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /* Main loop                                                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -343,6 +410,15 @@ async function main(): Promise<void> {
 
       const outcome = await applyBundle(config, state, bundle);
       await report(config, state, outcome.result, outcome.message, bundle.configHash);
+
+      // Shipped after the apply so a fresh configuration is in place before its
+      // first requests are reported.
+      if (bundle.accessLogPath) {
+        await shipLogs(config, state, bundle.accessLogPath).catch((error: unknown) => {
+          log('warn', 'could not ship access log lines',
+            error instanceof Error ? error.message : String(error));
+        });
+      }
     } catch (error) {
       const status = (error as { status?: number }).status;
       if (status === 401) {

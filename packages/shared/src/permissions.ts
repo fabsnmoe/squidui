@@ -42,6 +42,9 @@ export const PERMISSIONS = [
   'AUTH_PROVIDER_MANAGE',
   'AUTH_PROVIDER_TEST',
 
+  // Observability
+  'TRAFFIC_READ',
+
   // System
   'AUDIT_READ',
   'SETTINGS_READ',
@@ -72,6 +75,7 @@ const READ_ONLY: Permission[] = [
   'PROXY_USER_READ',
   'PROXY_GROUP_READ',
   'AUTH_PROVIDER_READ',
+  'TRAFFIC_READ',
   'AUDIT_READ',
   'SETTINGS_READ',
 ];

@@ -106,6 +106,13 @@ jobs:
           docker build -f deployments/agent/Dockerfile -t squid-control-plane/node:dev .
           ./scripts/verify-nodes.sh
 
+      # Drives real requests through a node and checks that they are ingested,
+      # parsed, aggregated and correctly scoped per identity (PLAN.md 9.23).
+      - name: Traffic pipeline verification
+        env:
+          SCP_ADMIN_PASSWORD: ci-admin-password
+        run: ./scripts/verify-traffic.sh
+
       - name: Diagnostics on failure
         if: failure()
         run: |

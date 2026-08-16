@@ -12,6 +12,7 @@ export * from './policy/openProxy.js';
 export * from './policy/accessProfile.js';
 export * from './squid/adapter.js';
 export * from './squid/compiler.js';
+export * from './squid/accessLog.js';
 export * from './net/ip.js';
 export * from './permissions.js';
 export * from './audit.js';

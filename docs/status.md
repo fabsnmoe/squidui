@@ -11,8 +11,8 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 
 | Check | Result |
 | --- | --- |
-| `npm run test --workspace @scp/shared` | 95 tests pass |
-| `npm run test --workspace @scp/api` | 21 tests pass |
+| `npm run test --workspace @scp/shared` | 105 tests pass |
+| `npm run test --workspace @scp/api` | 30 tests pass |
 | `npm run typecheck --workspace @scp/web` | clean, strict mode |
 | `docker compose build` (prod overlay) | both images build from a plain checkout |
 | `docker compose run --rm migrate` | schema applied, bootstrap idempotent |
@@ -21,6 +21,7 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 | `./scripts/verify-e2e.sh` | 44 checks pass |
 | `./scripts/verify-squid.sh` | 38 checks pass against a real Squid and OpenLDAP |
 | `./scripts/verify-nodes.sh` | 26 checks pass across two real proxy nodes with their agents |
+| `./scripts/verify-traffic.sh` | 23 checks pass: real requests ingested, parsed, filtered and aggregated |
 | Web UI | login, dashboard, local user management and the portal verified in a browser |
 
 ### Verified against a real Squid
@@ -115,6 +116,21 @@ caught. All four are fixed and now carry regression tests.
 - Credentials are revocable per node; a revoked node keeps serving what it has.
 - Verified with `scripts/verify-nodes.sh`: 26 checks across two real nodes.
 
+
+### Phase 8 — traffic logs
+- The compiler emits a versioned structured access log format; agents ship raw
+  lines and the control plane parses them, so a format change never requires a
+  fleet wide agent update.
+- Raw requests are kept for a bounded window (`TRAFFIC_RETENTION_DAYS`); hourly
+  rollups outlive them and are what the dashboard and portal read.
+- Identity filters: any, authenticated, unauthenticated, a specific user, plus
+  destination host, decision and node.
+- A 407 is recorded as a credentials challenge rather than a denial, so the
+  dashboard does not report a refusal for every first request of a session.
+- Full URLs are personal data: `TRAFFIC_LOG_URLS=false` stores only the
+  destination host, and the UI says which mode is in effect.
+- Portal statistics are scoped to the signed-in identity.
+- Verified with `scripts/verify-traffic.sh`: 23 checks driving real requests.
 ### Phase 9 — proxy identity and authentication
 - `DISABLED` / `OPTIONAL` / `REQUIRED` understood by backend, IR and UI.
 - Local and LDAP providers behind one adapter interface, a registry with
@@ -134,7 +150,7 @@ caught. All four are fixed and now carry regression tests.
 | Per-node configuration | not implemented | Every node receives the same policy. Node groups, site-specific listeners and staged rollouts are not modelled. |
 | Phase 4 — monitoring | partial | Node reachability, apply result and configuration drift are reported. No metrics, no alerting. |
 | Phase 7 — safe deployment, drift detection | not started | `config_versions` are stored; there is no diff view and no rollout. |
-| Phase 8 — logs and traffic | not started | The dashboard reports `available: false` for traffic metrics instead of inventing numbers. |
+
 | Phase 10-13 — TLS inspection, cache, upstreams, multi-node | not started | |
 | Control plane user management UI | not implemented | Roles and users exist in the database and are seeded; there is no admin screen yet. |
 | Rule editor wizard | partial | Simple rules use the drawer with the section order from `PLAN.md` §24. The stepped wizard for complex rules is missing. |
@@ -190,5 +206,5 @@ caught. All four are fixed and now carry regression tests.
    rules.
 4. Add the control plane user and role administration screen.
 5. Add the component gallery and visual regression baselines.
-6. Connect the traffic log pipeline (Phase 8) so the dashboard and the portal
-   can show real per-identity statistics instead of an empty state.
+6. Add per-node configuration: node groups and site-specific listeners, so a
+   fleet is not forced onto one identical policy.

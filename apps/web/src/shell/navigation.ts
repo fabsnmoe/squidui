@@ -123,6 +123,18 @@ export const NAVIGATION: NavGroup[] = [
     ],
   },
   {
+    label: 'Observability',
+    items: [
+      {
+        label: 'Traffic logs',
+        to: '/observability/logs',
+        icon: 'file',
+        permission: 'TRAFFIC_READ',
+        keywords: ['requests', 'access log', 'who visited', 'denied'],
+      },
+    ],
+  },
+  {
     label: 'System',
     items: [
       {

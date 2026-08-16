@@ -316,6 +316,7 @@ export async function registerPortalRoutes(app: FastifyInstance, context: AppCon
       [actor],
     );
 
+
     const { rows: counters } = await db.query<{ successes: string; failures: string; last_success: Date | null }>(
       `select
          count(*) filter (where action = 'PROXY_PORTAL_LOGIN_SUCCEEDED')::text as successes,
@@ -325,6 +326,21 @@ export async function registerPortalRoutes(app: FastifyInstance, context: AppCon
        where actor_username = $1 and occurred_at > now() - interval '30 days'`,
       [actor],
     );
+
+    // Scoped to this identity by username; a portal user can never read
+    // another account's traffic.
+    const { rows: usage } = await db.query<{ requests: string; bytes: string; denied: string }>(
+      `select coalesce(sum(requests), 0)::text as requests,
+              coalesce(sum(bytes), 0)::text as bytes,
+              coalesce(sum(requests) filter (where decision = 'DENIED'), 0)::text as denied
+       from traffic_rollups
+       where lower(username) = lower($1) and bucket > now() - interval '30 days'`,
+      [principal.username],
+    );
+    const { rows: reporting } = await db.query<{ nodes: string }>(
+      'select count(*)::text as nodes from node_log_state',
+    );
+
 
     return {
       events: rows.map((row) => ({
@@ -339,10 +355,15 @@ export async function registerPortalRoutes(app: FastifyInstance, context: AppCon
         lastSignInAt: counters[0]?.last_success?.toISOString() ?? null,
       },
       traffic: {
-        // Per-user request counters need the proxy log pipeline, which is not
-        // implemented. Reporting a zero here would be a lie.
-        available: false,
-        reason: 'Traffic statistics require the proxy log pipeline, which is not connected yet.',
+        // Real per-user counters from the hourly rollups. Available only once
+        // an agent has shipped log lines; showing a zero before that would
+        // read as "you made no requests" rather than "nothing is measured".
+        available: Number(reporting[0]?.nodes ?? '0') > 0,
+        last30Days: {
+          requests: Number(usage[0]?.requests ?? '0'),
+          bytes: Number(usage[0]?.bytes ?? '0'),
+          denied: Number(usage[0]?.denied ?? '0'),
+        },
       },
     };
   });

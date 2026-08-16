@@ -21,6 +21,12 @@ export interface AppConfig {
   bootstrapAdminUsername: string;
   bootstrapAdminPassword: string | null;
   seedDemoData: boolean;
+  traffic: {
+    /** How long raw request rows are kept. Hourly rollups outlive them. */
+    retentionDays: number;
+    /** When false only the destination host is stored, never the full URL. */
+    logUrls: boolean;
+  };
   build: {
     appVersion: string;
     gitSha: string;
@@ -90,6 +96,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     bootstrapAdminUsername: env.BOOTSTRAP_ADMIN_USERNAME ?? 'admin',
     bootstrapAdminPassword: env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || null,
     seedDemoData: (env.SEED_DEMO_DATA ?? 'false').toLowerCase() === 'true',
+    traffic: {
+      retentionDays: optionalNumber(env.TRAFFIC_RETENTION_DAYS, 30),
+      logUrls: (env.TRAFFIC_LOG_URLS ?? 'true').toLowerCase() !== 'false',
+    },
     build: {
       appVersion: env.APP_VERSION ?? '0.0.0-dev',
       gitSha: env.GIT_SHA ?? 'unknown',

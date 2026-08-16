@@ -9,12 +9,13 @@ It runs entirely from `docker compose`. The target server needs Docker and Git
 and nothing else — no Node.js, no npm, no PostgreSQL, no Redis.
 
 > **Project status: early, actively built.** The control plane, the policy
-> engine and the configuration compiler work and are verified end to end
-> against a real Squid 6 and a real OpenLDAP: all five acceptance scenarios
-> pass, including local and LDAP authentication in parallel. What is still
-> missing is the node agent, so the generated configuration is exported and
-> applied manually rather than pushed automatically. See
-> [Status and roadmap](#status-and-roadmap) for the honest breakdown.
+> engine, the configuration compiler, the node agent and the traffic log
+> pipeline are verified end to end against real Squid 6 nodes and a real
+> OpenLDAP: all five authentication acceptance scenarios pass, two nodes enrol
+> and converge on a policy change on their own, and real requests are ingested
+> and attributed to the identity that made them. What is missing is per-node
+> configuration and staged rollouts — every node currently receives the same
+> policy. See [Status and roadmap](#status-and-roadmap) for the full breakdown.
 
 ---
 
@@ -29,7 +30,9 @@ and nothing else — no Node.js, no npm, no PostgreSQL, no Redis.
 - [The two identity planes](#the-two-identity-planes)
 - [Authentication modes](#authentication-modes)
 - [Open proxy safety](#open-proxy-safety)
+- [Proxy nodes — one or many](#proxy-nodes--one-or-many)
 - [Self-service portal](#self-service-portal)
+- [Traffic logs](#traffic-logs)
 - [Generated Squid configuration](#generated-squid-configuration)
 - [API](#api)
 - [Operating](#operating)
@@ -142,6 +145,23 @@ helpers need, validates with `squid -k parse`, applies it with
   plane compares it to what it would send and flags the difference.
 - **Credentials are revocable per node**, and revoking one does not disturb the
   others.
+
+### Traffic logs
+
+Each node's agent ships its Squid access log to the control plane, which parses
+and stores it:
+
+- **Filter by identity**, which is what an operator actually asks: any,
+  authenticated only, unauthenticated only, or one specific user — plus
+  destination host, outcome and node.
+- **A challenge is not a denial.** A `407` is recorded as "challenged", so the
+  dashboard does not report a refusal for the first request of every session.
+- **Bounded storage.** Individual requests are kept for `TRAFFIC_RETENTION_DAYS`
+  (30 by default); hourly counters outlive them and are what the dashboard and
+  the portal read, so neither gets slower as the product runs.
+- **URLs are treated as personal data.** `TRAFFIC_LOG_URLS=false` records only
+  the destination host, and the UI states which mode is in effect.
+- **Portal statistics are scoped to the signed-in user** and to nothing else.
 
 ### Safety and accountability
 
@@ -524,7 +544,10 @@ the versioned prefix.
 | Policies | `GET/POST /access-rules`, `PATCH/DELETE /access-rules/:id`, `POST /access-rules/reorder`, `POST /access-rules/simulate` |
 | Networks, listeners | `GET/POST/PATCH/DELETE /networks`, `/listeners` |
 | Configuration | `GET /configuration/preview`, `POST /configuration/compile`, `GET /configuration/versions[/:id]` |
-| Dashboard, audit | `GET /dashboard`, `GET /nodes`, `GET /audit-events` |
+| Dashboard, audit | `GET /dashboard`, `GET /audit-events` |
+| Nodes | `GET/POST /nodes`, `PATCH/DELETE /nodes/:id`, `POST /nodes/:id/enrollment-token`, `POST /nodes/:id/revoke` |
+| Node agents | `POST /agent/enroll`, `GET /agent/config`, `POST /agent/status`, `POST /agent/logs` |
+| Traffic | `GET /traffic/events`, `GET /traffic/summary` |
 | Self-service portal | `POST /portal/session`, `DELETE /portal/session`, `GET /portal/me`, `POST /portal/password`, `GET /portal/access-profile`, `GET /portal/activity` |
 
 Every administrative route declares the permission it needs and fails closed.
@@ -629,6 +652,7 @@ down in [`docs/design/`](docs/design/).
 ```text
 apps/api            Fastify API, SQL migrations, provider adapters, services
 apps/web            React + Vite single page application
+apps/agent          node agent: enrols, pulls configuration, ships access logs
 packages/shared     domain core: policy IR, engine, Squid compiler, crypt(3)
 packages/ui         design system: tokens and components
 deployments/        docker compose stack and the nginx configuration
@@ -658,6 +682,8 @@ Against a running stack:
 ```bash
 SCP_ADMIN_PASSWORD=<your-admin-password> ./scripts/verify-e2e.sh
 SCP_ADMIN_PASSWORD=<your-admin-password> ./scripts/verify-squid.sh
+SCP_ADMIN_PASSWORD=<your-admin-password> ./scripts/verify-nodes.sh
+SCP_ADMIN_PASSWORD=<your-admin-password> ./scripts/verify-traffic.sh
 ```
 
 `verify-e2e.sh` covers the API: authentication modes, wrong and unknown
@@ -665,6 +691,11 @@ credentials, password non-disclosure, audit redaction, the open proxy
 acknowledgement flow, configuration compilation, mixed-mode policy evaluation,
 the self-service portal, and the audience boundary between the two identity
 planes.
+
+`verify-nodes.sh` runs two real proxy nodes with their agents: enrolment,
+configuration pull, convergence after a policy change, single-use tokens and
+credential revocation. `verify-traffic.sh` drives real requests through a node
+and checks they are ingested, parsed, filtered per identity and aggregated.
 
 `verify-squid.sh` starts a real Squid 6, a real OpenLDAP and an origin server,
 then for each acceptance scenario configures the control plane, exports the
@@ -693,7 +724,7 @@ portal, full Docker Compose deployment.
 | Per-node configuration | Every node receives the same policy. Node groups and site-specific listeners are not modelled yet. |
 | Staged rollouts | A policy change reaches all nodes at once; there is no canary or ring deployment. |
 | Enforcing "anonymous only" in optional mode | Squid challenges on any `proxy_auth` reference, so such a rule also matches authenticated clients. The compiler reports the widening. |
-| Traffic logs and per-user statistics | The UI reports these as unavailable rather than inventing numbers. |
+
 | TLS inspection, cache and upstream management, multi-node | Planned. |
 | Rule editor wizard, schedules in the editor, drag-to-reorder | The API supports them; the editor does not expose all of it yet. |
 | Control plane user administration UI | Roles and users exist and are seeded; there is no screen yet. |

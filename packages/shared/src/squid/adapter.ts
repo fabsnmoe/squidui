@@ -23,6 +23,8 @@ export interface SquidVersionAdapter {
     generatedDir: string;
     ncsaPasswordFile: string;
     secretsDir: string;
+    /** Access log the agent tails and ships to the control plane. */
+    accessLog: string;
   };
   /** crypt(3) format the bundled `basic_ncsa_auth` can verify. */
   passwordHashFormat: 'sha512-crypt' | 'md5-crypt';
@@ -50,6 +52,7 @@ export const SQUID_6_DEBIAN: SquidVersionAdapter = {
     generatedDir: '/etc/squid/scp',
     ncsaPasswordFile: '/etc/squid/scp/local_users',
     secretsDir: '/etc/squid/scp/secrets',
+    accessLog: '/var/log/squid/access.log',
   },
   passwordHashFormat: 'sha512-crypt',
   runtimeUser: 'root',

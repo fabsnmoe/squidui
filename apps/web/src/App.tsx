@@ -18,6 +18,7 @@ import { ListenersPage } from './pages/ListenersPage.js';
 import { NodesPage } from './pages/NodesPage.js';
 import { ConfigurationReviewPage } from './pages/ConfigurationReviewPage.js';
 import { AuditPage } from './pages/AuditPage.js';
+import { LogsPage } from './pages/LogsPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 
 function Guard({ permission, children }: { permission: Permission; children: JSX.Element }): JSX.Element {
@@ -153,6 +154,14 @@ export function App(): JSX.Element {
           element={
             <Guard permission="CONFIG_READ">
               <ConfigurationReviewPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="observability/logs"
+          element={
+            <Guard permission="TRAFFIC_READ">
+              <LogsPage />
             </Guard>
           }
         />

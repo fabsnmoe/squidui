@@ -6,6 +6,7 @@ import { badRequest, clientIp, unauthorized, HttpError } from '../http/context.j
 import { AuthenticationProviderRegistry } from '../providers/registry.js';
 import { configurationHash, hashCredential, generateCredential, looksLike } from '../security/agentAuth.js';
 import { compileCurrentConfiguration } from '../services/configuration.js';
+import { ingestAccessLog } from '../services/traffic.js';
 import type { AppContext } from '../server.js';
 
 /**
@@ -37,6 +38,10 @@ const statusSchema = z.object({
   agentVersion: z.string().max(64).optional(),
   squidVersion: z.string().max(64).optional(),
   squidRunning: z.boolean().optional(),
+});
+
+const logsSchema = z.object({
+  lines: z.array(z.string().max(8192)).max(1000),
 });
 
 interface AgentPrincipal {
@@ -198,8 +203,28 @@ export async function registerAgentRoutes(app: FastifyInstance, context: AppCont
         confPath: `${adapter.paths.generatedDir}/squid.conf`,
         binary: 'squid',
       },
+      accessLogPath: adapter.paths.accessLog,
       warnings: compiled.warnings,
     };
+  });
+
+  /* --- Access log ingestion (PLAN.md Phase 8) ----------------------------- */
+
+  app.post('/agent/logs', async (request) => {
+    const agent = await authenticateAgent(request);
+    const parsed = logsSchema.safeParse(request.body);
+    if (!parsed.success) throw badRequest('Invalid log payload.', parsed.error.issues);
+
+    const result = await ingestAccessLog(db, agent.nodeId, parsed.data.lines, {
+      logUrls: config.traffic.logUrls,
+      retentionDays: config.traffic.retentionDays,
+    });
+
+    await db.query('update proxy_nodes set last_seen_at = now() where id = $1', [agent.nodeId]);
+
+    // Unparseable lines are counted, not logged: a malformed line may still
+    // contain a URL, and the API log is not the place for request contents.
+    return { accepted: result.accepted, rejected: result.rejected };
   });
 
   /* --- Status report ----------------------------------------------------- */

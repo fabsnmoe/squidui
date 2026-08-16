@@ -18,6 +18,7 @@ import {
   type Weekday,
 } from '../policy/ir.js';
 import type { AuthenticationMode } from '../auth/model.js';
+import { ACCESS_LOG_FORMAT, ACCESS_LOG_FORMAT_NAME } from './accessLog.js';
 import { DEFAULT_SQUID_ADAPTER, type SquidVersionAdapter } from './adapter.js';
 
 export interface LocalPasswordEntry {
@@ -465,6 +466,11 @@ export function compileConfiguration(
 
   section('Operational defaults');
   out.push('coredump_dir /var/spool/squid');
+  out.push('');
+  out.push('# Structured access log. The node agent ships these lines to the control');
+  out.push('# plane, which parses them, so the format is defined in exactly one place.');
+  out.push(`logformat ${ACCESS_LOG_FORMAT_NAME} ${ACCESS_LOG_FORMAT}`);
+  out.push(`access_log ${adapter.paths.accessLog} ${ACCESS_LOG_FORMAT_NAME}`);
   out.push('refresh_pattern ^ftp:           1440  20%  10080');
   out.push('refresh_pattern ^gopher:        1440   0%   1440');
   out.push('refresh_pattern -i (/cgi-bin/|\\?) 0    0%      0');

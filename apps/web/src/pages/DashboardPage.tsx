@@ -46,6 +46,8 @@ interface DashboardResponse {
   traffic: {
     available: boolean;
     authenticatedRequests: number | null;
+    deniedRequests?: number;
+    authRequiredRequests?: number;
     unauthenticatedRequests: number | null;
     authenticationFailures24h: number;
   };
@@ -161,8 +163,8 @@ export function DashboardPage(): JSX.Element {
                 />
               ) : (
                 <p className="scp-secondary">
-                  No node has reported yet. Node reporting arrives with the agent, which is not part of this
-                  release.
+                  No node has reported yet. Add a node under Infrastructure and run its agent on the proxy
+                  host.
                 </p>
               )}
             </Card>
@@ -173,14 +175,14 @@ export function DashboardPage(): JSX.Element {
               label="Authenticated requests"
               value={data.traffic.authenticatedRequests ?? 0}
               available={data.traffic.available}
-              unavailableText="Traffic log pipeline not connected"
+              unavailableText="No node has reported traffic yet"
               hint="Requests that carried a proxy identity."
             />
             <MetricCard
               label="Unauthenticated requests"
               value={data.traffic.unauthenticatedRequests ?? 0}
               available={data.traffic.available}
-              unavailableText="Traffic log pipeline not connected"
+              unavailableText="No node has reported traffic yet"
               hint="Requests without a proxy identity."
             />
             <MetricCard

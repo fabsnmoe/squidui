@@ -51,6 +51,25 @@ export async function registerDashboardRoutes(app: FastifyInstance, context: App
          and occurred_at > now() - interval '24 hours'`,
     );
 
+    // Counters come from the hourly rollups, never from the raw event table:
+    // the dashboard must not get slower the longer the product runs.
+    const { rows: trafficRows } = await db.query<{
+      authenticated: string;
+      unauthenticated: string;
+      denied: string;
+      auth_required: string;
+      reporting_nodes: string;
+    }>(
+      `select
+         coalesce(sum(requests) filter (where authenticated), 0)::text as authenticated,
+         coalesce(sum(requests) filter (where not authenticated), 0)::text as unauthenticated,
+         coalesce(sum(requests) filter (where decision = 'DENIED'), 0)::text as denied,
+         coalesce(sum(requests) filter (where decision = 'AUTH_REQUIRED'), 0)::text as auth_required,
+         (select count(*) from node_log_state)::text as reporting_nodes
+       from traffic_rollups
+       where bucket > now() - interval '24 hours'`,
+    );
+
     return {
       authentication: {
         mode: ir.authentication.mode,
@@ -85,11 +104,13 @@ export async function registerDashboardRoutes(app: FastifyInstance, context: App
         versions: Number(counters[0]?.config_versions ?? '0'),
       },
       traffic: {
-        // Traffic and per-identity request counters come from the log pipeline
-        // (Phase 8), which is not implemented yet.
-        available: false,
-        authenticatedRequests: null,
-        unauthenticatedRequests: null,
+        // Real numbers as soon as at least one agent has shipped log lines;
+        // until then the UI shows an empty state rather than a zero.
+        available: Number(trafficRows[0]?.reporting_nodes ?? '0') > 0,
+        authenticatedRequests: Number(trafficRows[0]?.authenticated ?? '0'),
+        unauthenticatedRequests: Number(trafficRows[0]?.unauthenticated ?? '0'),
+        deniedRequests: Number(trafficRows[0]?.denied ?? '0'),
+        authRequiredRequests: Number(trafficRows[0]?.auth_required ?? '0'),
         authenticationFailures24h: Number(recentFailures[0]?.count ?? '0'),
       },
     };

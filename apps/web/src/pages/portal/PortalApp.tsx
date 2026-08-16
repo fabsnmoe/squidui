@@ -52,7 +52,10 @@ interface AccessProfileResponse extends AccessProfile {
 interface Activity {
   events: Array<{ occurredAt: string; action: string; outcome: string; sourceIp: string | null }>;
   last30Days: { signIns: number; failedSignIns: number; lastSignInAt: string | null };
-  traffic: { available: boolean; reason: string };
+  traffic: {
+    available: boolean;
+    last30Days: { requests: number; bytes: number; denied: number };
+  };
 }
 
 const TABS = [
@@ -379,10 +382,14 @@ function ActivitySection(): JSX.Element {
         <MetricCard label="Last sign-in" value={formatDateTime(data.last30Days.lastSignInAt)} />
         <MetricCard
           label="Requests through the proxy"
-          value={0}
+          value={data.traffic.last30Days.requests}
           available={data.traffic.available}
-          unavailableText="Not available yet"
-          hint={data.traffic.reason}
+          unavailableText="Not measured yet"
+          hint={
+            data.traffic.available
+              ? `${data.traffic.last30Days.denied} blocked, last 30 days`
+              : 'No proxy node has reported traffic yet.'
+          }
         />
       </div>
 

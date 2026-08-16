@@ -74,6 +74,7 @@ because they are never mixed in the data model (`PRODUCT.md` §1).
 | `/authentication/groups` | Proxy Groups | `PROXY_GROUP_READ` |
 | `/authentication/test` | Authentication Test | `AUTH_PROVIDER_TEST` |
 | `/configuration/review` | Configuration Review | `CONFIG_READ` |
+| `/observability/logs` | Traffic logs | `TRAFFIC_READ` |
 | `/system/audit` | Audit Log | `AUDIT_READ` |
 | `/system/settings` | Settings | `SETTINGS_READ` |
 
