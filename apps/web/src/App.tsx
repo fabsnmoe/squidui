@@ -15,6 +15,7 @@ import { AuthenticationTestPage } from './pages/authentication/TestPage.js';
 import { AccessRulesPage } from './pages/policies/AccessRulesPage.js';
 import { NetworksPage } from './pages/policies/NetworksPage.js';
 import { ListenersPage } from './pages/ListenersPage.js';
+import { NodeGroupsPage } from './pages/NodeGroupsPage.js';
 import { NodesPage } from './pages/NodesPage.js';
 import { ConfigurationReviewPage } from './pages/ConfigurationReviewPage.js';
 import { AuditPage } from './pages/AuditPage.js';
@@ -146,6 +147,14 @@ export function App(): JSX.Element {
           element={
             <Guard permission="AUTH_PROVIDER_TEST">
               <AuthenticationTestPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="node-groups"
+          element={
+            <Guard permission="NODE_READ">
+              <NodeGroupsPage />
             </Guard>
           }
         />

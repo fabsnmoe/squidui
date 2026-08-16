@@ -74,6 +74,16 @@ export interface CompiledConfiguration {
   adapterId: string;
 }
 
+/**
+ * ACL covering the listeners that can produce an identity.
+ *
+ * Squid challenges a client as soon as it evaluates any proxy_auth backed ACL,
+ * even on a listener that demands nothing. A rule requiring an identity must
+ * therefore be restricted to the listeners that have one, or it challenges the
+ * guests it was never meant to touch.
+ */
+const AUTH_PORTS_ACL = 'scp_auth_ports';
+
 const DAY_LETTERS: Record<Weekday, string> = {
   SUN: 'S',
   MON: 'M',
@@ -405,6 +415,7 @@ export function compileConfiguration(
   }
 
   const listenerAcl = new Map<string, string>();
+  const authPortAclLines: string[] = [];
   const listenerGuards: string[] = [];
 
   for (const listener of ir.listeners) {
@@ -438,6 +449,12 @@ export function compileConfiguration(
       );
     }
 
+    if (listener.authentication !== 'DISABLED') {
+      // Repeated acl lines of the same name are an OR in Squid, so this one
+      // ACL ends up covering every listener that can produce an identity.
+      authPortAclLines.push(`acl ${AUTH_PORTS_ACL} myportname ${portName}`);
+    }
+
     if (listener.authentication === 'REQUIRED') {
       // Scoped to this listener, so a guest port next to it is never
       // challenged - which is the whole point of moving auth onto the listener.
@@ -445,6 +462,13 @@ export function compileConfiguration(
         `http_access deny ${aclName} !scp_authenticated  # ${listener.name}: credentials required`,
       );
     }
+  }
+
+  if (authPortAclLines.length > 0 && authPortAclLines.length < activeListeners.length) {
+    out.push('');
+    out.push('# Listeners that can produce an identity. Rules requiring one are');
+    out.push('# restricted to these, so a guest listener is never challenged.');
+    for (const line of authPortAclLines) out.push(line);
   }
 
   /* --- access rules ----------------------------------------------------- */
@@ -499,7 +523,17 @@ export function compileConfiguration(
       sawAuthenticatedRule = true;
     }
 
-    const sourceTerms = networkAclByRule.get(rule.id) ?? [];
+    const needsIdentity =
+      rule.identity.kind === 'AUTHENTICATED' ||
+      rule.identity.kind === 'USER' ||
+      rule.identity.kind === 'GROUP';
+    // Restricting the rule to identity-capable listeners is what stops it from
+    // challenging clients on a listener that demands nothing.
+    const identityPortGuard =
+      needsIdentity && authPortAclLines.length > 0 && authPortAclLines.length < activeListeners.length
+        ? [AUTH_PORTS_ACL]
+        : [];
+    const sourceTerms = [...identityPortGuard, ...(networkAclByRule.get(rule.id) ?? [])];
     const scheduleAcl = scheduleAclByRule.get(rule.id);
     const restTerms = [
       ...(destinationAclByRule.get(rule.id) ?? []),

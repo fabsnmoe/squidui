@@ -44,6 +44,8 @@ interface Rule {
   identity: { kind: IdentityKind; userIds?: string[]; groupIds?: string[] };
   destination: { kind: string; domains?: string[]; ports?: number[]; cidrs?: string[] };
   schedule: { kind: string };
+  scope: 'GLOBAL' | 'NODE_GROUP';
+  scope_group_ids: string[];
 }
 
 interface RuleForm {
@@ -60,6 +62,8 @@ interface RuleForm {
   destinationKind: 'ANY' | 'SPECIFIC';
   domains: string;
   ports: string;
+  scope: 'GLOBAL' | 'NODE_GROUP';
+  scopeGroupIds: string[];
 }
 
 const EMPTY_FORM: RuleForm = {
@@ -76,6 +80,8 @@ const EMPTY_FORM: RuleForm = {
   destinationKind: 'ANY',
   domains: '',
   ports: '',
+  scope: 'GLOBAL',
+  scopeGroupIds: [],
 };
 
 export function AccessRulesPage(): JSX.Element {
@@ -87,6 +93,9 @@ export function AccessRulesPage(): JSX.Element {
     api('/proxy-groups', { signal }),
   );
   const users = useQuery<{ items: Array<{ id: string; username: string }> }>((signal) => api('/proxy-users', { signal }));
+  const nodeGroups = useQuery<{ items: Array<{ id: string; name: string }> }>((signal) =>
+    api('/node-groups', { signal }),
+  );
 
   const [form, setForm] = useState<RuleForm | null>(null);
   const [deleting, setDeleting] = useState<Rule | null>(null);
@@ -131,6 +140,16 @@ export function AccessRulesPage(): JSX.Element {
     },
     { id: 'identity', header: 'Identity', cell: (row) => <StatusBadge tone="info">{identityLabel(row.identity)}</StatusBadge> },
     {
+      id: 'scope',
+      header: 'Applies to',
+      cell: (row) =>
+        row.scope === 'NODE_GROUP' ? (
+          <StatusBadge tone="warning">{`${(row.scope_group_ids ?? []).length} group(s)`}</StatusBadge>
+        ) : (
+          <span className="scp-hint">All nodes</span>
+        ),
+    },
+    {
       id: 'destination',
       header: 'Destination',
       cell: (row) =>
@@ -171,6 +190,11 @@ export function AccessRulesPage(): JSX.Element {
 
   const save = async (): Promise<void> => {
     if (!form) return;
+    if (form.scope === 'NODE_GROUP' && form.scopeGroupIds.length === 0) {
+      setFormError('Select at least one node group, or set the scope back to global.');
+      return;
+    }
+
     setBusy(true);
     setFormError(null);
 
@@ -200,6 +224,10 @@ export function AccessRulesPage(): JSX.Element {
       identity,
       destination,
       schedule: { kind: 'ALWAYS' },
+      scope: form.scope,
+      // An empty list on a group-scoped rule would silently apply nowhere, so
+      // the editor refuses to save it below rather than storing it.
+      scopeGroupIds: form.scope === 'NODE_GROUP' ? form.scopeGroupIds : [],
     };
 
     try {
@@ -289,6 +317,8 @@ export function AccessRulesPage(): JSX.Element {
                           enabled: row.enabled,
                           sourceKind: row.source.kind === 'NETWORKS' ? 'NETWORKS' : 'ANY',
                           networkIds: row.source.networkIds ?? [],
+                          scope: row.scope ?? 'GLOBAL',
+                          scopeGroupIds: row.scope_group_ids ?? [],
                           identityKind: row.identity.kind,
                           groupIds: row.identity.groupIds ?? [],
                           userIds: row.identity.userIds ?? [],
@@ -331,6 +361,50 @@ export function AccessRulesPage(): JSX.Element {
                 value={form.description}
                 onChange={(event) => setForm({ ...form, description: event.target.value })}
               />
+            </FormSection>
+
+            <FormSection
+              title="Where it applies"
+              description="A rule is global unless a site genuinely needs its own. Global keeps the list readable, which is worth more than the flexibility."
+            >
+              <Select
+                label="Scope"
+                value={form.scope}
+                options={[
+                  { value: 'GLOBAL', label: 'Global — every proxy node' },
+                  { value: 'NODE_GROUP', label: 'Selected node groups only' },
+                ]}
+                onChange={(event) =>
+                  setForm({ ...form, scope: event.target.value as 'GLOBAL' | 'NODE_GROUP' })
+                }
+              />
+              {form.scope === 'NODE_GROUP' ? (
+                <>
+                  {(nodeGroups.data?.items ?? []).map((group) => (
+                    <label key={group.id} className="scp-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={form.scopeGroupIds.includes(group.id)}
+                        onChange={(event) =>
+                          setForm({
+                            ...form,
+                            scopeGroupIds: event.target.checked
+                              ? [...form.scopeGroupIds, group.id]
+                              : form.scopeGroupIds.filter((id) => id !== group.id),
+                          })
+                        }
+                      />
+                      <span>{group.name}</span>
+                    </label>
+                  ))}
+                  {form.scopeGroupIds.length === 0 ? (
+                    <InlineAlert tone="warning" title="No group selected">
+                      A rule scoped to node groups without a group applies nowhere at all. Pick at least one group,
+                      or set the scope back to global.
+                    </InlineAlert>
+                  ) : null}
+                </>
+              ) : null}
             </FormSection>
 
             <FormSection title="Source" description="Which client addresses this rule applies to.">

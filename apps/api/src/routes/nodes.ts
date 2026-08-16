@@ -51,6 +51,8 @@ interface NodeRow {
   last_error: string | null;
   created_at: Date;
   reported_hash: string | null;
+  group_id: string | null;
+  group_name: string | null;
   squid_running: boolean | null;
   has_credential: boolean;
   pending_token: boolean;
@@ -61,11 +63,13 @@ const NODE_SELECT = `
          n.adapter_id, n.labels, n.enrolled_at, n.last_seen_at, n.applied_at,
          n.apply_result, n.apply_message, n.last_error, n.created_at,
          h.config_hash as reported_hash, h.squid_running,
+         n.group_id, g.name as group_name,
          exists (select 1 from node_credentials c where c.node_id = n.id and c.revoked_at is null) as has_credential,
          exists (select 1 from node_enrollment_tokens t
                  where t.node_id = n.id and t.used_at is null and t.expires_at > now()) as pending_token
   from proxy_nodes n
-  left join node_heartbeats h on h.node_id = n.id`;
+  left join node_heartbeats h on h.node_id = n.id
+  left join node_groups g on g.id = n.group_id`;
 
 /**
  * A node is stale when it enrolled but has not checked in recently. The agent
@@ -86,6 +90,9 @@ function toNode(row: NodeRow, currentHash: string) {
     hostname: row.hostname,
     adapterId: row.adapter_id,
     labels: row.labels ?? {},
+    // Which group a node belongs to decides which listeners it serves, so it
+    // belongs in the list rather than three clicks away.
+    group: row.group_id ? { id: row.group_id, name: row.group_name } : null,
     status: stale ? 'UNREACHABLE' : row.status,
     enrolled: row.enrolled_at !== null,
     enrolledAt: row.enrolled_at?.toISOString() ?? null,

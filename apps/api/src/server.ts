@@ -8,6 +8,7 @@ import { registerConfigurationRoutes } from './routes/configuration.js';
 import { registerDashboardRoutes } from './routes/dashboard.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerAgentRoutes } from './routes/agent.js';
+import { registerListenerProfileRoutes } from './routes/listenerProfiles.js';
 import { registerNodeRoutes } from './routes/nodes.js';
 import { registerPolicyRoutes } from './routes/policies.js';
 import { registerPortalRoutes } from './routes/portal.js';
@@ -116,6 +117,7 @@ export async function buildServer(db: Db, config: AppConfig): Promise<FastifyIns
       await registerSessionRoutes(instance, context);
       await registerPortalRoutes(instance, context);
       await registerNodeRoutes(instance, context);
+      await registerListenerProfileRoutes(instance, context);
       await registerAgentRoutes(instance, context);
       await registerProxyAuthRoutes(instance, context);
       await registerProxyIdentityRoutes(instance, context);

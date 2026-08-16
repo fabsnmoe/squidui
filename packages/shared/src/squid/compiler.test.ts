@@ -361,3 +361,78 @@ describe('compiler - unauthenticated identity', () => {
     expect(result.warnings.map((warning) => warning.code)).toContain('OPTIONAL_MODE_RULE_ORDER');
   });
 });
+
+describe('compiler - identity rules next to a listener without authentication', () => {
+  const mixedListeners = [
+    { id: 'l1', key: 'corporate', name: 'Corporate', address: '0.0.0.0', port: 3128, mode: 'FORWARD' as const, enabled: true, authentication: 'REQUIRED' as const, inheritsAuthentication: false, sourceNetworks: [] },
+    { id: 'l2', key: 'guest', name: 'Guest', address: '0.0.0.0', port: 3129, mode: 'FORWARD' as const, enabled: true, authentication: 'DISABLED' as const, inheritsAuthentication: false, sourceNetworks: [] },
+  ];
+
+  const authenticatedRule = rule({
+    id: 'r10',
+    position: 10,
+    name: 'Authenticated users',
+    identity: { kind: 'AUTHENTICATED' },
+  });
+
+  /*
+   * Regression from the phase 6.5 acceptance run against a real Squid. A guest
+   * request on :3129 was answered with 407 even though its listener carried no
+   * guard at all: the first rule in the list required an identity, Squid
+   * evaluated its proxy_auth backed ACL, and challenged. A dedicated guest
+   * listener is therefore not enough on its own - the rules that need an
+   * identity have to be restricted to the listeners that can produce one.
+   */
+  it('restricts an identity rule to the listeners that can authenticate', () => {
+    const result = compile(
+      createEmptyIr({
+        authentication: { mode: 'REQUIRED', realm: 'Squid', providers: [localProvider], localGroupMembers: {} },
+        defaultAccess: 'DENY',
+        listeners: mixedListeners,
+        rules: [authenticatedRule],
+      }),
+    );
+
+    expect(result.squidConf).toContain('acl scp_auth_ports myportname corporate');
+    // The guest listener must never end up in that ACL, or it is challenged again.
+    expect(result.squidConf).not.toContain('acl scp_auth_ports myportname guest');
+
+    const ruleLine = result.squidConf
+      .split(String.fromCharCode(10))
+      .find((line) => line.startsWith('http_access allow scp_auth_ports'));
+    expect(ruleLine).toBeDefined();
+    expect(ruleLine).toContain('scp_authenticated');
+  });
+
+  it('leaves the rule untouched when every listener authenticates', () => {
+    const result = compile(
+      createEmptyIr({
+        authentication: { mode: 'REQUIRED', realm: 'Squid', providers: [localProvider], localGroupMembers: {} },
+        defaultAccess: 'DENY',
+        listeners: [mixedListeners[0]!],
+        rules: [authenticatedRule],
+      }),
+    );
+
+    // Nothing to protect the rule from, so the extra term would only be noise
+    // in a configuration an operator has to read.
+    expect(result.squidConf).not.toContain('scp_auth_ports');
+    expect(result.squidConf).toContain('http_access allow scp_authenticated');
+  });
+
+  it('does not restrict a rule that needs no identity', () => {
+    const result = compile(
+      createEmptyIr({
+        authentication: { mode: 'REQUIRED', realm: 'Squid', providers: [localProvider], localGroupMembers: {} },
+        defaultAccess: 'DENY',
+        listeners: mixedListeners,
+        rules: [rule({ id: 'r20', position: 20, name: 'Anyone', identity: { kind: 'ANY' } })],
+      }),
+    );
+
+    // The rule's own access line is the one right after its comment.
+    const lines = result.squidConf.split(String.fromCharCode(10));
+    const ruleLine = lines[lines.indexOf('# Rule 20 - Anyone') + 1];
+    expect(ruleLine).toBe('http_access allow all');
+  });
+});

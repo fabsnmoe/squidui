@@ -52,6 +52,7 @@ interface Node {
   apply: { result: string | null; message: string | null; at: string | null };
   lastError: string | null;
   configuration: { currentHash: string; reportedHash: string | null; inSync: boolean; drift: boolean };
+  group: { id: string; name: string } | null;
   createdAt: string;
 }
 
@@ -80,6 +81,10 @@ export function NodesPage(): JSX.Element {
   const toast = useToast();
   const nodes = useQuery<NodesResponse>((signal) => api('/nodes', { signal }));
 
+  const nodeGroups = useQuery<{ items: Array<{ id: string; name: string }> }>((signal) =>
+    api('/node-groups', { signal }),
+  );
+  const [movingGroup, setMovingGroup] = useState(false);
   const [form, setForm] = useState<{ name: string; description: string; hostname: string; adapterId: string } | null>(
     null,
   );
@@ -98,6 +103,19 @@ export function NodesPage(): JSX.Element {
       nodes.reload();
     } catch (error) {
       toast.error('Could not issue a token', error instanceof ApiError ? error.message : 'Unexpected error.');
+    }
+  };
+
+  const moveToGroup = async (node: Node, groupId: string | null): Promise<void> => {
+    setMovingGroup(true);
+    try {
+      await api(`/nodes/${node.id}/group`, { method: 'POST', body: { groupId } });
+      toast.success('Node moved', groupId ? 'It serves the listeners of its new group.' : 'The node is unassigned.');
+      nodes.reload();
+    } catch (error) {
+      toast.error('Could not move the node', error instanceof ApiError ? error.message : 'Unexpected error.');
+    } finally {
+      setMovingGroup(false);
     }
   };
 
@@ -417,6 +435,20 @@ export function NodesPage(): JSX.Element {
                 next poll unless applying keeps failing.
               </InlineAlert>
             ) : null}
+
+            {/* The group decides which listeners this node serves, so it is
+                changed here rather than on a separate screen. */}
+            <Select
+              label="Node group"
+              value={detail.group?.id ?? ''}
+              disabled={movingGroup || !canManage}
+              hint="Listeners and scoped rules follow the group. Moving a node changes what it serves on the next poll."
+              options={[
+                { value: '', label: 'Unassigned' },
+                ...(nodeGroups.data?.items ?? []).map((group) => ({ value: group.id, label: group.name })),
+              ]}
+              onChange={(event) => void moveToGroup(detail, event.target.value || null)}
+            />
 
             <DescriptionList
               items={[

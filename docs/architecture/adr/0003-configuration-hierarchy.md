@@ -98,7 +98,81 @@ documented answer when the distinction must actually be enforced.
   "one implicit group, everything global", so a single-node installation never
   has to look at any of it.
 
+
+## Effective authentication mode
+
+Confirmed by the product owner as the model to keep:
+
+```text
+Global default            Authentication -> Overview
+      ↓
+Listener profile override INHERIT | DISABLED | OPTIONAL | REQUIRED
+      ↓
+Effective mode            what the listener actually enforces
+```
+
+A profile set to `INHERIT` follows the global default, which is why a
+single-node installation never has to look at listener profiles at all. Any
+other value overrides it for that listener only.
+
+`INHERIT` exists solely in the stored profile. By the time a listener reaches
+the IR the mode is resolved, so neither the policy engine nor the compiler has
+to know the hierarchy existed. Anything that projects a different global
+default onto an existing configuration - the security check before saving a
+mode change - has to re-resolve the inheriting listeners first; getting that
+wrong is what caused defect five.
+
+This is what makes the two-listener case expressible:
+
+```text
+Corporate proxy            Guest proxy
+10.10.0.2:3128             10.10.0.2:3129
+REQUIRED                   DISABLED
+Local + LDAP               no credentials
+```
+
+Squid challenges a client as soon as it evaluates any ACL backed by
+`proxy_auth`. Scoping the challenge to a named port is therefore the only way
+to run both on one node, and a dedicated listener is the documented answer
+whenever `UNAUTHENTICATED` has to be enforced rather than approximated.
+
 ## Not decided here
 
 Dynamic group membership from tags, deployment rings beyond canary plus serial,
 and per-node policy scope. All three are explicitly out of 1.0.
+
+## A dedicated listener is not sufficient on its own
+
+Found while verifying the corporate/guest acceptance case against a real Squid,
+and worth recording because it is the non-obvious half of this decision.
+
+Giving the guest listener `DISABLED` removes its credentials guard, but it does
+not stop the rules from challenging. Squid asks for credentials the moment it
+evaluates any ACL backed by `proxy_auth`, and rules are evaluated in order for
+every listener. A rule list that starts with
+
+```text
+10  Authenticated users   ->  http_access allow scp_authenticated
+20  Anyone to the origin
+```
+
+challenges a guest on `:3129` at rule 10, before rule 20 is ever reached. The
+listener was configured correctly and the client still got a 407.
+
+Rules that require an identity are therefore restricted to the listeners that
+can produce one:
+
+```text
+acl scp_auth_ports myportname corporate
+http_access allow scp_auth_ports scp_authenticated  # 10 Authenticated users
+```
+
+Repeated `acl` lines of the same name are an OR in Squid, so one ACL covers
+every authenticating listener. The term is omitted entirely when all listeners
+authenticate, because then there is nothing to protect the rule from and the
+extra term would only be noise in a file an operator has to read.
+
+The consequence for the model: **the listener's authentication mode is not just
+a guard, it is a precondition for identity-bearing rules.** An operator does not
+have to scope rules to listeners by hand for the guest case to work — which was
+the point of putting authentication on the listener in the first place.

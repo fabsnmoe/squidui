@@ -65,6 +65,8 @@ const scheduleSchema = z.union([
 ]);
 
 const ruleSchema = z.object({
+  scope: z.enum(['GLOBAL', 'NODE_GROUP']).optional(),
+  scopeGroupIds: z.array(z.string().uuid()).max(32).optional(),
   name: z.string().min(1).max(128),
   description: z.string().max(512).nullable().optional(),
   enabled: z.boolean().default(true),
@@ -254,7 +256,7 @@ export async function registerPolicyRoutes(app: FastifyInstance, context: AppCon
     requirePermission(request, 'POLICY_READ');
     const { rows } = await db.query(
       `select id, position, name, description, enabled, action, source, identity, destination, schedule,
-              created_at, updated_at
+              scope, scope_group_ids, created_at, updated_at
        from access_rules order by position, id`,
     );
     return { items: rows, total: rows.length };
@@ -273,8 +275,8 @@ export async function registerPolicyRoutes(app: FastifyInstance, context: AppCon
         .then((result) => result.rows[0]?.next ?? 10));
 
     const { rows } = await db.query<{ id: string }>(
-      `insert into access_rules (position, name, description, enabled, action, source, identity, destination, schedule)
-       values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb)
+      `insert into access_rules (position, name, description, enabled, action, source, identity, destination, schedule, scope, scope_group_ids)
+       values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11::uuid[])
        returning id`,
       [
         position,
@@ -286,6 +288,8 @@ export async function registerPolicyRoutes(app: FastifyInstance, context: AppCon
         JSON.stringify(input.identity),
         JSON.stringify(input.destination),
         JSON.stringify(input.schedule),
+        input.scope ?? 'GLOBAL',
+        input.scopeGroupIds ?? [],
       ],
     );
 
@@ -318,6 +322,8 @@ export async function registerPolicyRoutes(app: FastifyInstance, context: AppCon
          identity = coalesce($8::jsonb, identity),
          destination = coalesce($9::jsonb, destination),
          schedule = coalesce($10::jsonb, schedule),
+         scope = coalesce($11, scope),
+         scope_group_ids = coalesce($12::uuid[], scope_group_ids),
          updated_at = now()
        where id = $1 returning name`,
       [
@@ -331,6 +337,8 @@ export async function registerPolicyRoutes(app: FastifyInstance, context: AppCon
         patch.identity ? JSON.stringify(patch.identity) : null,
         patch.destination ? JSON.stringify(patch.destination) : null,
         patch.schedule ? JSON.stringify(patch.schedule) : null,
+        patch.scope ?? null,
+        patch.scopeGroupIds ?? null,
       ],
     );
     if (rows.length === 0) throw notFound('Access rule not found.');

@@ -42,6 +42,13 @@ export const NAVIGATION: NavGroup[] = [
     items: [
       { label: 'Nodes', to: '/nodes', icon: 'server', permission: 'NODE_READ', keywords: ['proxy', 'agent'] },
       {
+        label: 'Node groups',
+        to: '/node-groups',
+        icon: 'server',
+        permission: 'NODE_READ',
+        keywords: ['site', 'location', 'scope', 'hierarchy'],
+      },
+      {
         label: 'Listeners',
         to: '/listeners',
         icon: 'listener',

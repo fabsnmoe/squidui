@@ -11,17 +11,18 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 
 | Check | Result |
 | --- | --- |
-| `npm run test --workspace @scp/shared` | 105 tests pass |
+| `npm run test --workspace @scp/shared` | 111 tests pass |
 | `npm run test --workspace @scp/api` | 30 tests pass |
 | `npm run typecheck --workspace @scp/web` | clean, strict mode |
 | `docker compose build` (prod overlay) | both images build from a plain checkout |
 | `docker compose run --rm migrate` | schema applied, bootstrap idempotent |
 | `docker compose up -d` | postgres, redis, api, web all healthy |
 | `GET /api/health/ready` | `200 {"status":"ready"}` |
-| `./scripts/verify-e2e.sh` | 44 checks pass |
+| `./scripts/verify-e2e.sh` | 47 checks pass |
+| `./scripts/verify-listeners.sh` | 22 checks pass: corporate and guest listener on one node |
 | `./scripts/verify-squid.sh` | 38 checks pass against a real Squid and OpenLDAP |
 | `./scripts/verify-nodes.sh` | 26 checks pass across two real proxy nodes with their agents |
-| `./scripts/verify-traffic.sh` | 23 checks pass: real requests ingested, parsed, filtered and aggregated |
+| `./scripts/verify-traffic.sh` | 31 checks pass: real requests ingested, parsed, filtered and aggregated |
 | Web UI | login, dashboard, local user management and the portal verified in a browser |
 
 ### Verified against a real Squid
@@ -48,8 +49,8 @@ both crypt implementations against known-answer vectors from
 
 ### Defects this found
 
-Testing against a real Squid surfaced four bugs that no unit test would have
-caught. All four are fixed and now carry regression tests.
+Testing against a real Squid surfaced bugs that no unit test would have
+caught. All are fixed and now carry regression tests.
 
 1. **Artefact ownership was missing from the contract.** The compiler declared
    mode `0640` but no owner, so the NCSA file landed as `root:root`. Squid
@@ -70,6 +71,12 @@ caught. All four are fixed and now carry regression tests.
    always passed to `ldapts`, which made every cleartext provider fail with
    "socket disconnected before secure TLS connection was established". It is
    now only passed when TLS is actually used.
+5. **A guest listener was still challenged by the rules.** A listener set to
+   `DISABLED` carries no credentials guard, but the first rule requiring an
+   identity still made Squid evaluate `proxy_auth` and answer 407 on the guest
+   port. Rules that need an identity are now restricted to the listeners that
+   can produce one. See ADR 0003, "A dedicated listener is not sufficient on
+   its own".
 
 ## Implemented
 
@@ -209,13 +216,14 @@ good 1.0 beats an overloaded one with half-hardened CA and MITM management.
 
 | # | Phase | Contents |
 | --- | --- | --- |
-| 1 | **6.5 Architecture adjustment** | Node groups, listener profiles, configuration scope, authentication per listener (ADR 0003) |
+| ✅ | **6.5 Architecture adjustment** | Node groups, listener profiles, configuration scope, authentication per listener (ADR 0003). Verified by `verify-listeners.sh`: corporate `:3128 REQUIRED` and guest `:3129 DISABLED` on one real node at the same time |
+| 1 | **Visual regression foundation** | Deterministic demo environment, reference screens for the Anti-SAP gate |
 | 2 | **7 Safe deployment** | Semantic diff, config diff, per-node deployment result, rollback, SERIAL, CANARY + SERIAL |
-| 3 | **13 Multi-node completion** | Node groups UI, group assignments, desired state, group-specific listener config |
+| 3 | **13 Multi-node completion** | Desired state and per-group deployment. Node groups UI, group assignment and group-specific listener config landed with 6.5 |
 | 4 | **6 UI completion** | Schedules, drag and reorder, advanced rule wizard |
 | 5 | **2 Control plane identity completion** | Users UI, roles UI, OIDC alongside local, break-glass administrator |
 | 6 | **12 Advanced administration** | Backup and restore, advanced configuration, diagnostics |
-| 7 | **14 Production and UX hardening** | Visual regression, N → N+1 update test, component showcase, security review |
+| 7 | **14 Production and UX hardening** | N → N+1 update test, component showcase, security review |
 | 8 | **15 Release 1.0** | |
 
 After 1.0: TLS inspection with CA management and certificate lifecycle (1.1),
@@ -224,7 +232,7 @@ then cache management and upstream proxies (1.2).
 ### Standing requirement for every new feature
 
 A feature is not done until its actual end-to-end path has been tested against
-a real Squid. Five defects so far were invisible to unit tests and only
+a real Squid. Seven defects so far were invisible to unit tests and only
 appeared under real traffic — see "Defects this found" above.
 
 For phase 7 specifically, failure injection is part of the deliverable, not a
@@ -265,3 +273,31 @@ convergence gate pass before the second node had converged.
 been wrong in a way that hid product behaviour rather than revealing it. An
 assertion that cannot fail is worse than no assertion, because it is counted
 as evidence.
+
+
+## Defect six: the guest listener was challenged by a rule, not by its listener
+
+Found by `verify-listeners.sh` while verifying the phase 6.5 acceptance
+criterion, and the most instructive one so far because every intermediate
+assertion passed.
+
+**Symptom.** `:3129` was configured `DISABLED` and answered `407`. The
+generated configuration carried exactly one credentials guard, that guard was
+scoped by `myportname` to the corporate port, and the guest port carried none.
+By every structural check the configuration was right.
+
+**Cause.** Squid evaluates the rule list for every listener. The first rule
+required an identity and compiled to `http_access allow scp_authenticated`;
+evaluating that ACL is itself what triggers the challenge, so the guest was
+asked for credentials at rule 10 and never reached the rule that would have
+admitted it. Moving authentication onto the listener removes the guard but not
+the rules.
+
+**Fix.** Rules requiring an identity are restricted to the listeners that can
+produce one, via a single `scp_auth_ports` ACL built from repeated `myportname`
+lines. The term is omitted when every listener authenticates.
+
+**Lesson worth keeping.** The structural assertions were all true and all
+irrelevant. Only the request itself — an anonymous client on `:3129` expecting
+`200` — could distinguish a configuration that looks right from one that
+behaves right.
