@@ -147,10 +147,17 @@ export async function registerProxyAuthRoutes(app: FastifyInstance, context: App
     // Dry run: build the IR as it would look after the change and check it.
     const registry = await AuthenticationProviderRegistry.load(db, config);
     const { ir } = await buildIr(db, registry);
+    // The security check has to judge the *new* configuration. Listeners that
+    // inherit are re-resolved against the new default; without this, switching
+    // from disabled to required is judged against the old listeners and the
+    // tightening is refused as if it opened the proxy.
     const projected = {
       ...ir,
       authentication: { ...ir.authentication, mode: next.mode, realm: next.realm },
       defaultAccess: next.defaultAccess,
+      listeners: ir.listeners.map((listener) =>
+        listener.inheritsAuthentication ? { ...listener, authentication: next.mode } : listener,
+      ),
     };
     const findings = detectSecurityFindings(projected);
 

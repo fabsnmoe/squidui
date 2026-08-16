@@ -165,7 +165,10 @@ for id in $(get /access-rules | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//')
   curl -s -o /dev/null -X DELETE "$BASE/access-rules/$id" -H "$AUTH"
 done
 post /access-rules '{"name":"Authenticated only","action":"ALLOW","source":{"kind":"ANY"},"identity":{"kind":"AUTHENTICATED"},"destination":{"kind":"ANY"},"schedule":{"kind":"ALWAYS"}}' >/dev/null
-ok "policy switched to REQUIRED"
+# A real assertion, not an unconditional pass. An unconditional ok here hid a
+# 409 for two full runs and made the product look broken.
+MODE=$(get /proxy-auth/overview | grep -o '"configuration":{"mode":"[A-Z]*"' | grep -o '[A-Z]\{4,\}')
+expect "$MODE" "REQUIRED" "policy switched to REQUIRED"
 
 converged=0
 deadline=$(( $(date +%s) + 90 ))

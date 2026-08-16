@@ -141,6 +141,13 @@ export interface Listener {
   /** Already resolved: never `INHERIT` at this point. */
   authentication: ListenerAuthenticationMode;
   /**
+   * Whether the resolved mode came from the global default rather than from the
+   * profile. Callers that project a different default onto the configuration -
+   * the security check before saving a mode change - have to re-resolve these,
+   * otherwise they judge the new mode against the old listeners.
+   */
+  inheritsAuthentication: boolean;
+  /**
    * Traffic arriving on this listener from anywhere else is refused before any
    * rule runs. Empty means every source.
    */

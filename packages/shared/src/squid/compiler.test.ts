@@ -59,7 +59,7 @@ describe('compiler - authentication disabled', () => {
   const ir = createEmptyIr({
     authentication: { mode: 'DISABLED', realm: 'Squid', providers: [], localGroupMembers: {} },
     defaultAccess: 'ALLOW',
-    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '0.0.0.0', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'DISABLED', sourceNetworks: [] }],
+    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '0.0.0.0', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'DISABLED', inheritsAuthentication: false, sourceNetworks: [] }],
     rules: [rule({ id: 'r1', position: 10, name: 'Allow any' })],
   });
 
@@ -94,7 +94,7 @@ describe('compiler - required mode with the local provider', () => {
       localGroupMembers: { Services: ['service-api', 'service-batch'] },
     },
     defaultAccess: 'DENY',
-    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', sourceNetworks: [] }],
+    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', inheritsAuthentication: false, sourceNetworks: [] }],
     rules: [
       rule({
         id: 'r10',
@@ -189,7 +189,7 @@ describe('compiler - multiple providers in parallel', () => {
       localGroupMembers: {},
     },
     defaultAccess: 'DENY',
-    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', sourceNetworks: [] }],
+    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', inheritsAuthentication: false, sourceNetworks: [] }],
     rules: [rule({ id: 'r10', position: 10, identity: { kind: 'AUTHENTICATED' } })],
   });
 
@@ -245,7 +245,7 @@ describe('compiler - LDAP groups', () => {
       localGroupMembers: {},
     },
     defaultAccess: 'DENY',
-    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', sourceNetworks: [] }],
+    listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', inheritsAuthentication: false, sourceNetworks: [] }],
     rules: [
       rule({
         id: 'r10',
@@ -295,8 +295,8 @@ describe('compiler - unauthenticated identity', () => {
       // A corporate listener next to a guest one: that mixture is what makes the
       // identity mode optional now, rather than a global switch.
       listeners: [
-        { id: 'l1', key: 'corporate', name: 'Corporate', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', sourceNetworks: [] },
-        { id: 'l2', key: 'guest', name: 'Guest', address: '10.0.0.5', port: 3129, mode: 'FORWARD', enabled: true, authentication: 'DISABLED', sourceNetworks: [] },
+        { id: 'l1', key: 'corporate', name: 'Corporate', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', inheritsAuthentication: false, sourceNetworks: [] },
+        { id: 'l2', key: 'guest', name: 'Guest', address: '10.0.0.5', port: 3129, mode: 'FORWARD', enabled: true, authentication: 'DISABLED', inheritsAuthentication: false, sourceNetworks: [] },
       ],
       rules,
     });
@@ -343,7 +343,7 @@ describe('compiler - unauthenticated identity', () => {
     const ir = createEmptyIr({
       authentication: { mode: 'REQUIRED', realm: 'Squid', providers: [localProvider], localGroupMembers: {} },
       defaultAccess: 'DENY',
-      listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', sourceNetworks: [] }],
+      listeners: [{ id: 'l', key: 'default', name: 'Default', address: '10.0.0.5', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', inheritsAuthentication: false, sourceNetworks: [] }],
       rules: [rule({ id: 'r10', position: 10, identity: { kind: 'UNAUTHENTICATED' } })],
     });
     const result = compile(ir);

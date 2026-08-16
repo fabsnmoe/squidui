@@ -11,6 +11,7 @@ const publicListener: Listener = {
   mode: 'FORWARD',
   enabled: true,
   authentication: 'DISABLED',
+  inheritsAuthentication: false,
   sourceNetworks: [],
 };
 

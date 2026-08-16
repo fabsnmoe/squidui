@@ -159,6 +159,7 @@ export async function buildIr(
     // INHERIT is resolved here so nothing downstream has to know the hierarchy
     // existed.
     authentication: row.authentication_mode === 'INHERIT' ? authConfig.mode : row.authentication_mode,
+    inheritsAuthentication: row.authentication_mode === 'INHERIT',
     sourceNetworks: (row.source_network_ids ?? [])
       .map((id) => networksById.get(id))
       .filter((network): network is { id: string; name: string; cidrs: string[] } => Boolean(network)),

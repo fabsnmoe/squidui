@@ -86,7 +86,10 @@ excludes "$C" 'auth_param' "no auth_param while authentication is disabled"
 patch /proxy-auth/config '{"mode":"REQUIRED","defaultAccess":"DENY"}' >/dev/null
 C=$(get /configuration/preview)
 contains "$C" 'basic_ncsa_auth' "required mode wires up basic_ncsa_auth"
-contains "$C" 'http_access deny !scp_authenticated' "unauthenticated clients are challenged"
+# Since ADR 0003 the challenge is scoped to the listener that demands it, so a
+# guest listener beside it is never asked for credentials.
+contains "$C" 'myportname' "each listener gets its own named port"
+contains "$C" 'deny scp_lp_.*!scp_authenticated' "the challenge is scoped to the listener that requires it"
 contains "$C" '"sensitive":true' "the password file is marked sensitive"
 excludes "$C" 'e2e-verify-password' "no plaintext in the configuration preview"
 excludes "$C" '\$6\$' "no password hashes in the configuration preview"
@@ -112,6 +115,17 @@ S=$(post /access-rules/simulate '{"sourceIp":"10.10.0.5","authenticated":true,"u
 contains "$S" '"decision":"ALLOW"' "authenticated employee is allowed"
 S=$(post /access-rules/simulate '{"sourceIp":"10.99.0.5","authenticated":false,"destinationHost":"example.com","destinationPort":443}')
 contains "$S" '"decision":"DENY"' "anonymous client from an unknown network is denied"
+
+
+echo "== tightening the mode is never refused as an open proxy =="
+# Regression: the security check judged the new mode against the old listeners,
+# so switching from disabled to required was refused with a 409 - the exact
+# opposite of opening the proxy.
+patch /proxy-auth/config '{"mode":"DISABLED","defaultAccess":"ALLOW","acknowledgeOpenProxy":true}' >/dev/null
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -X PATCH "$BASE/proxy-auth/config" -H "$AUTH" \
+  -H 'Content-Type: application/json' -d '{"mode":"REQUIRED","defaultAccess":"DENY"}')
+expect "$CODE" "200" "switching from disabled to required is accepted without acknowledgement"
+contains "$(get /proxy-auth/overview)" '"mode":"REQUIRED"' "the mode actually changed"
 
 echo "== self-service portal =="
 # Idempotent fixture: the scenario below changes this user's password, so it is

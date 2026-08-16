@@ -233,23 +233,35 @@ reconfigure, a failing health check, a failing canary, and the rollback path
 itself.
 
 
-## Open defect — phase 6.5 in progress
 
-`scripts/verify-nodes.sh` fails two checks after the listener profile change:
-an anonymous client receives `200` where it should receive `407`.
+## Defect five: tightening the mode was refused as an open proxy
 
-What is verified as correct:
+Found by `verify-nodes.sh` after the phase 6.5 change, diagnosed and fixed.
 
-- the generated configuration contains the port name, the `myportname` ACL and
-  the guard `http_access deny scp_lp_<name> !scp_authenticated`,
-- the listener resolves to `REQUIRED` in the IR,
-- both nodes report themselves in sync.
+**Symptom.** An anonymous client received `200` where it should have received
+`407`. The generated configuration looked correct and both nodes reported
+themselves in sync, which made it look like a Squid or agent problem.
 
-So the compiler output looks right and the node claims to be running it. What
-has **not** been established is whether the node actually applied that
-configuration at the moment of the request, or whether Squid evaluates the
-guard as intended with the port name in use. Not yet diagnosed, deliberately
-not guessed at.
+**Cause.** Since ADR 0003 the open proxy check reads the *listeners*, not the
+global mode. The dry run in `PATCH /proxy-auth/config` built its projection by
+overwriting only the global mode, while the listeners in that IR still carried
+the value they had been resolved with. Switching from `DISABLED` to `REQUIRED`
+was therefore judged against the old listeners, reported as an open proxy and
+refused with `409` — the exact opposite of what the change did. The mode never
+changed, the nodes kept serving the previous allow-any policy, and the request
+was allowed entirely correctly.
 
-Until this is closed, phase 6.5 is **not** done, and the per-listener
-authentication path must not be considered working.
+**Fix.** The IR records whether a listener inherited its mode, and the
+projection re-resolves those against the new default before the check runs.
+
+**Why it stayed hidden for two runs.** The verification asserted the switch
+with an unconditional `ok` that never checked the response, so a `409` passed
+silently. That assertion is now real, and a regression check in
+`verify-e2e.sh` covers the tightening path directly. A leftover node record
+from a manual diagnosis additionally skewed the summary counters, which let the
+convergence gate pass before the second node had converged.
+
+**Lesson worth keeping.** Three of the assertions in this repository have now
+been wrong in a way that hid product behaviour rather than revealing it. An
+assertion that cannot fail is worse than no assertion, because it is counted
+as evidence.
