@@ -1,0 +1,24 @@
+# Normalise line endings in the repository.
+#
+# Everything here runs inside Linux containers. A shell script or Dockerfile
+# committed with CRLF fails there with an unhelpful "not found" on the shebang,
+# so those files are pinned to LF regardless of the contributor's platform.
+
+* text=auto eol=lf
+
+*.sh            text eol=lf
+*.mjs           text eol=lf
+*.ldif          text eol=lf
+Dockerfile      text eol=lf
+*.conf          text eol=lf
+*.sql           text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.woff          binary
+*.woff2         binary

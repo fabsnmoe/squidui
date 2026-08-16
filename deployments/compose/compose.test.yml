@@ -1,0 +1,91 @@
+# Test overlay: a real Squid, a real LDAP directory, an origin server and a
+# client, so the generated configuration can be verified end to end
+# (PLAN.md 9.14 - 9.18, 9.24).
+#
+#   ./scripts/verify-squid.sh
+#
+# Not for production. It publishes no ports and lives on its own network next
+# to the control plane's.
+#
+# None of these services sets container_name on purpose: a fixed name collides
+# with `docker compose run`, which the verification uses for `squid -k parse`.
+
+services:
+  # Something for the proxy to fetch that does not require internet access.
+  origin:
+    image: nginx:1.27-alpine
+    networks:
+      - proxytest
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Squid itself, running the configuration this project generates.
+  #
+  # The generated files arrive read-only from the host and are then installed
+  # the way a deployment would: copied into place, owned by the account Squid's
+  # helpers run as, and only then handed to squid. Skipping the ownership step
+  # is exactly the failure this test exists to catch.
+  squid:
+    image: ubuntu/squid:latest
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /etc/squid/scp
+        # -r: the export contains a secrets/ directory for the LDAP helpers.
+        cp -r /etc/squid/scp-src/. /etc/squid/scp/
+        rm -f /etc/squid/scp/apply-ownership.sh
+        chmod 0644 /etc/squid/scp/squid.conf
+        if [ -f /etc/squid/scp-src/apply-ownership.sh ]; then
+          sh /etc/squid/scp-src/apply-ownership.sh
+        fi
+        ls -l /etc/squid/scp
+        exec squid -N -d 1 -f /etc/squid/scp/squid.conf
+    volumes:
+      - ../../tmp/squid-test:/etc/squid/scp-src:ro
+    networks:
+      - proxytest
+    depends_on:
+      origin:
+        condition: service_healthy
+
+  # Test directory, seeded from an LDIF so the fixture is reproducible.
+  ldap:
+    image: osixia/openldap:1.5.0
+    command: ["--copy-service"]
+    environment:
+      LDAP_ORGANISATION: Squid Control Plane Test
+      LDAP_DOMAIN: example.internal
+      LDAP_ADMIN_PASSWORD: ldap-admin-password
+      LDAP_CONFIG_PASSWORD: ldap-config-password
+      LDAP_TLS: "false"
+      LDAP_REMOVE_CONFIG_AFTER_SETUP: "false"
+    volumes:
+      - ./ldap/seed.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/50-seed.ldif:ro
+    networks:
+      - proxytest
+      - backend
+    healthcheck:
+      # Binds as the admin: anonymous access is restricted, so an anonymous
+      # probe would report unhealthy even on a working directory.
+      test:
+        - CMD-SHELL
+        - ldapsearch -x -H ldap://127.0.0.1:389 -D "cn=admin,dc=example,dc=internal" -w ldap-admin-password -b "ou=users,dc=example,dc=internal" -s base dn >/dev/null 2>&1
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  # Idle container used to run curl against the proxy.
+  client:
+    image: curlimages/curl:latest
+    entrypoint: ["sleep", "infinity"]
+    networks:
+      - proxytest
+
+networks:
+  proxytest:

@@ -1,0 +1,39 @@
+# Test directory content for the end-to-end verification.
+# Not a production example: passwords are cleartext so the fixture stays
+# readable and reproducible.
+
+dn: ou=users,dc=example,dc=internal
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=example,dc=internal
+objectClass: organizationalUnit
+ou: groups
+
+dn: uid=ldapuser,ou=users,dc=example,dc=internal
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+objectClass: top
+uid: ldapuser
+cn: LDAP Test User
+sn: User
+displayName: LDAP Test User
+userPassword: ldap-user-password
+
+dn: uid=ldapsecond,ou=users,dc=example,dc=internal
+objectClass: inetOrgPerson
+objectClass: organizationalPerson
+objectClass: person
+objectClass: top
+uid: ldapsecond
+cn: Second Directory User
+sn: User
+displayName: Second Directory User
+userPassword: ldap-second-password
+
+dn: cn=Developers,ou=groups,dc=example,dc=internal
+objectClass: groupOfNames
+objectClass: top
+cn: Developers
+member: uid=ldapuser,ou=users,dc=example,dc=internal

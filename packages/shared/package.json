@@ -1,0 +1,31 @@
+{
+  "name": "@scp/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Domain core: proxy identity model, policy IR + engine, Squid compiler, crypt(3)",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./crypt": {
+      "types": "./dist/crypt/index.d.ts",
+      "default": "./dist/crypt/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
+  }
+}

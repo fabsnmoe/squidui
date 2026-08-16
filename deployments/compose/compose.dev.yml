@@ -1,0 +1,51 @@
+# Development overlay: source mounts, hot reload, exposed API port.
+#
+#   docker compose -f deployments/compose/compose.yml \
+#                  -f deployments/compose/compose.dev.yml up --build
+#
+# Web on http://localhost:5173, API on http://localhost:3000.
+# The Docker development environment stays functional at all times
+# (PLAN.md section 29) - running the apps natively is optional.
+
+services:
+  postgres:
+    ports:
+      # Convenience for local psql. Bound to loopback only.
+      - "127.0.0.1:5432:5432"
+
+  api:
+    build:
+      target: deps
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+    command:
+      - sh
+      - -c
+      - "npm run build --workspace @scp/shared && npm run dev --workspace @scp/api"
+    volumes:
+      - ../../apps/api:/app/apps/api
+      - ../../packages:/app/packages
+      - ../../tsconfig.base.json:/app/tsconfig.base.json
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  web:
+    build:
+      target: deps
+    command:
+      - sh
+      - -c
+      - "npm run build --workspace @scp/shared && npm run dev --workspace @scp/web -- --host 0.0.0.0"
+    environment:
+      VITE_API_PROXY_TARGET: http://api:3000
+    volumes:
+      - ../../apps/web:/app/apps/web
+      - ../../packages:/app/packages
+      - ../../tsconfig.base.json:/app/tsconfig.base.json
+    ports:
+      - "5173:5173"
+    networks:
+      - frontend
+      - backend

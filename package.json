@@ -1,0 +1,26 @@
+{
+  "name": "squid-control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Squid Control Plane - modern, reliable, portable management UI for Squid proxies",
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @scp/shared && npm run build --workspace @scp/api && npm run build --workspace @scp/web",
+    "build:shared": "npm run build --workspace @scp/shared",
+    "test": "npm run test --workspace @scp/shared && npm run test --workspace @scp/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:api": "npm run dev --workspace @scp/api",
+    "dev:web": "npm run dev --workspace @scp/web"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
+  }
+}

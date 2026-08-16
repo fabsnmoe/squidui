@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "paths": {
+      "@scp/ui": ["../../packages/ui/src/index.ts"],
+      "@scp/ui/*": ["../../packages/ui/src/*"]
+    }
+  },
+  // vite.config.ts is deliberately excluded: npm can hoist two copies of Vite's
+  // types in a workspace, which makes the plugin type nominally incompatible
+  // with itself. Vite validates its own config at build time.
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

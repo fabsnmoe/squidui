@@ -1,0 +1,205 @@
+/*
+ * Design tokens - the single source of truth for every visual value.
+ * Feature code must never hard code a colour, spacing, radius or duration
+ * that exists here (PLAN.md section 3, docs/design/colors.md).
+ */
+
+:root {
+  /* --- Spacing (4px rhythm) --------------------------------------------- */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* --- Typography -------------------------------------------------------- */
+  --font-sans: 'Inter var', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 26px;
+  --font-size-2xl: 32px;
+
+  --line-height-xs: 16px;
+  --line-height-sm: 18px;
+  --line-height-base: 20px;
+  --line-height-md: 24px;
+  --line-height-lg: 28px;
+  --line-height-xl: 34px;
+  --line-height-2xl: 40px;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* --- Radius ------------------------------------------------------------ */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 999px;
+
+  /* --- Elevation --------------------------------------------------------- */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.06);
+  --shadow-lg: 0 12px 16px -4px rgba(16, 24, 40, 0.1), 0 4px 6px -2px rgba(16, 24, 40, 0.05);
+  --shadow-overlay: 0 24px 48px -12px rgba(16, 24, 40, 0.24);
+
+  /* --- Motion ------------------------------------------------------------ */
+  --duration-instant: 0ms;
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --easing-decelerate: cubic-bezier(0, 0, 0, 1);
+
+  /* --- Z-index ----------------------------------------------------------- */
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-header: 200;
+  --z-drawer: 300;
+  --z-dialog: 400;
+  --z-popover: 500;
+  --z-toast: 600;
+  --z-command: 700;
+
+  /* --- Layout ------------------------------------------------------------ */
+  --sidebar-width: 264px;
+  --sidebar-rail-width: 64px;
+  --topbar-height: 56px;
+  --content-max-width: 1280px;
+  --control-height-sm: 32px;
+  --control-height-md: 36px;
+  --control-height-lg: 44px;
+  --row-height: 44px;
+
+  /* --- Breakpoints (documentation; media queries inline the values) ------ */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+
+  /* --- Semantic colour: light -------------------------------------------- */
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: #ffffff;
+  --color-surface-sunken: #f0f2f5;
+  --color-surface-hover: #f3f4f7;
+
+  --color-border-subtle: #eceef2;
+  --color-border: #dfe3e9;
+  --color-border-strong: #c3cad5;
+
+  --color-text: #12161c;
+  --color-text-secondary: #4d5766;
+  --color-text-muted: #6b7686;
+  --color-text-inverted: #ffffff;
+
+  --color-accent: #4f46e5;
+  --color-accent-hover: #4338ca;
+  --color-accent-active: #3730a3;
+  --color-accent-subtle: #eef2ff;
+  --color-accent-text: #4338ca;
+
+  --color-focus-ring: #6366f1;
+  --color-overlay-scrim: rgba(16, 20, 28, 0.45);
+
+  --color-success-fg: #15803d;
+  --color-success-bg: #ecfdf3;
+  --color-success-border: #abefc6;
+
+  --color-warning-fg: #b45309;
+  --color-warning-bg: #fffaeb;
+  --color-warning-border: #fedf89;
+
+  --color-danger-fg: #b91c1c;
+  --color-danger-bg: #fef3f2;
+  --color-danger-border: #fecdca;
+
+  --color-info-fg: #0369a1;
+  --color-info-bg: #f0f9ff;
+  --color-info-border: #b9e6fe;
+
+  --color-neutral-fg: #4d5766;
+  --color-neutral-bg: #f2f4f7;
+  --color-neutral-border: #e4e7ec;
+
+  color-scheme: light;
+}
+
+/* --- Semantic colour: dark ------------------------------------------------ */
+:root[data-theme='dark'] {
+  --color-bg: #0b0d10;
+  --color-surface: #14171c;
+  --color-surface-raised: #191d24;
+  --color-surface-overlay: #1c212a;
+  --color-surface-sunken: #0f1216;
+  --color-surface-hover: #1b1f27;
+
+  --color-border-subtle: #1e232b;
+  --color-border: #272d37;
+  --color-border-strong: #3a424f;
+
+  --color-text: #e9edf3;
+  --color-text-secondary: #a3adbb;
+  --color-text-muted: #7a8493;
+  --color-text-inverted: #0b0d10;
+
+  --color-accent: #818cf8;
+  --color-accent-hover: #a5b4fc;
+  --color-accent-active: #c7d2fe;
+  --color-accent-subtle: #1e1b4b;
+  --color-accent-text: #a5b4fc;
+
+  --color-focus-ring: #818cf8;
+  --color-overlay-scrim: rgba(0, 0, 0, 0.6);
+
+  --color-success-fg: #4ade80;
+  --color-success-bg: #05291a;
+  --color-success-border: #14532d;
+
+  --color-warning-fg: #fbbf24;
+  --color-warning-bg: #2b1c05;
+  --color-warning-border: #78350f;
+
+  --color-danger-fg: #f87171;
+  --color-danger-bg: #2c1113;
+  --color-danger-border: #7f1d1d;
+
+  --color-info-fg: #38bdf8;
+  --color-info-bg: #062033;
+  --color-info-border: #075985;
+
+  --color-neutral-fg: #a3adbb;
+  --color-neutral-bg: #1b1f27;
+  --color-neutral-border: #272d37;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 16px -4px rgba(0, 0, 0, 0.55);
+  --shadow-overlay: 0 24px 48px -12px rgba(0, 0, 0, 0.7);
+
+  color-scheme: dark;
+}
+
+/* Accessibility: honour the operating system preference (WCAG 2.3.3). */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+  }
+}

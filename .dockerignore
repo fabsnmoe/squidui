@@ -1,0 +1,26 @@
+# Never ship local state or secrets into a build context.
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+backups/
+tmp/
+*.log
+
+docs/
+*.md
+!README.md
+
+.vscode
+.idea
+.DS_Store
+Thumbs.db

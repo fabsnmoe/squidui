@@ -1,0 +1,105 @@
+name: CI
+
+# Every pull request must at least prove that the stack still builds
+# (PLAN.md section 7). A build failure is merge blocking.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit tests and typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build the domain core
+        run: npm run build --workspace @scp/shared
+
+      - name: Unit tests
+        run: |
+          npm run test --workspace @scp/shared
+          npm run test --workspace @scp/api
+
+      - name: Typecheck
+        run: |
+          npm run build --workspace @scp/api
+          npm run typecheck --workspace @scp/web
+
+  docker-build:
+    name: docker compose build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Prepare environment
+        run: cp .env.example .env
+
+      # Gate H: the full control plane must be buildable from a plain checkout,
+      # with local images only and no registry login (Gate I).
+      - name: Build every image
+        run: |
+          docker compose \
+            --env-file .env \
+            -f deployments/compose/compose.yml \
+            -f deployments/compose/compose.prod.yml \
+            build
+
+  fresh-install:
+    name: Fresh installation and readiness
+    runs-on: ubuntu-latest
+    needs: docker-build
+    steps:
+      - uses: actions/checkout@v4
+
+      # Mirrors the supported installation flow from PLAN.md section 16.
+      - name: Configure
+        run: |
+          # The repository may have been committed from a filesystem without an
+          # executable bit; make the wrappers runnable either way.
+          chmod +x scripts/*.sh
+          cp .env.example .env
+          sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -base64 32)|" .env
+          sed -i "s|^SECRET_ENCRYPTION_KEY=.*|SECRET_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
+          sed -i "s|^BOOTSTRAP_ADMIN_PASSWORD=.*|BOOTSTRAP_ADMIN_PASSWORD=ci-admin-password|" .env
+          sed -i "s|^SEED_DEMO_DATA=.*|SEED_DEMO_DATA=true|" .env
+
+      - name: Install
+        run: ./scripts/install.sh
+
+      - name: Health check
+        run: ./scripts/healthcheck.sh
+
+      - name: End-to-end verification
+        env:
+          SCP_ADMIN_PASSWORD: ci-admin-password
+        run: ./scripts/verify-e2e.sh
+
+      # Boots a real Squid 6 and a real OpenLDAP and drives traffic through the
+      # generated configuration (PLAN.md 9.24).
+      - name: Verification against a real Squid
+        env:
+          SCP_ADMIN_PASSWORD: ci-admin-password
+        run: ./scripts/verify-squid.sh
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          docker compose --env-file .env \
+            -f deployments/compose/compose.yml \
+            -f deployments/compose/compose.prod.yml logs --tail 200

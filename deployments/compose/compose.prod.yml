@@ -1,0 +1,61 @@
+# Production overlay: restart policy, resource limits, log rotation.
+#
+#   docker compose -f deployments/compose/compose.yml \
+#                  -f deployments/compose/compose.prod.yml up -d
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-restart: &restart unless-stopped
+
+services:
+  postgres:
+    restart: *restart
+    logging: *logging
+    shm_size: 256mb
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  redis:
+    restart: *restart
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  api:
+    restart: *restart
+    logging: *logging
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    restart: *restart
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    security_opt:
+      - no-new-privileges:true
+
+  migrate:
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true

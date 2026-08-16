@@ -1,0 +1,124 @@
+# Base stack. Combine with compose.dev.yml or compose.prod.yml:
+#
+#   docker compose -f deployments/compose/compose.yml \
+#                  -f deployments/compose/compose.prod.yml up -d
+#
+# Every image is built locally from this repository. Nothing is pulled from a
+# registry we publish to (PLAN.md Gate I, section 28).
+
+name: ${COMPOSE_PROJECT_NAME:-squid-control-plane}
+
+x-build-args: &build-args
+  APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+  GIT_SHA: ${GIT_SHA:-unknown}
+  BUILD_DATE: ${BUILD_DATE:-unknown}
+
+x-api-environment: &api-environment
+  NODE_ENV: production
+  API_PORT: "3000"
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required, see .env.example}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required, see .env.example}
+  JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-43200}
+  SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?SECRET_ENCRYPTION_KEY is required, see .env.example}
+  PROXY_PASSWORD_HASH_FORMAT: ${PROXY_PASSWORD_HASH_FORMAT:-sha512-crypt}
+  BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+  BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+  SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
+  APP_VERSION: ${APP_VERSION:-0.0.0-dev}
+  GIT_SHA: ${GIT_SHA:-unknown}
+  BUILD_DATE: ${BUILD_DATE:-unknown}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    # No host port mapping - the database is reachable on the internal
+    # network only (PLAN.md section 13, threat model T10).
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-squidcp}
+      POSTGRES_USER: ${POSTGRES_USER:-squidcp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-squidcp} -d ${POSTGRES_DB:-squidcp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      args: *build-args
+    image: squid-control-plane/api:${APP_VERSION:-dev}
+    environment: *api-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - frontend
+      - backend
+      - database
+
+  # Runs the schema migrations and the idempotent bootstrap, then exits.
+  # Invoked explicitly:  docker compose ... run --rm migrate
+  migrate:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+      args: *build-args
+    image: squid-control-plane/api:${APP_VERSION:-dev}
+    command: ["node", "apps/api/dist/db/migrate.js"]
+    environment: *api-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - database
+    restart: "no"
+    profiles:
+      - tools
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args: *build-args
+    image: squid-control-plane/web:${APP_VERSION:-dev}
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    networks:
+      - frontend
+
+networks:
+  frontend:
+  backend:
+  database:
+
+volumes:
+  postgres_data:
+  redis_data:
+  backup_data:
