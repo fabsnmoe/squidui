@@ -130,6 +130,11 @@ caught. All four are fixed and now carry regression tests.
 - Full URLs are personal data: `TRAFFIC_LOG_URLS=false` stores only the
   destination host, and the UI says which mode is in effect.
 - Portal statistics are scoped to the signed-in identity.
+- **Not complete against PLAN.md 9.23:** the plan also lists a *provider*
+  filter. Squid's access log reports the username but not which provider
+  accepted it, so the column exists and stays null rather than being guessed.
+  Attributing a request to a provider needs the authentication helper to report
+  it, which stock `basic_ncsa_auth` does not.
 - Verified with `scripts/verify-traffic.sh`: 23 checks driving real requests.
 ### Phase 9 — proxy identity and authentication
 - `DISABLED` / `OPTIONAL` / `REQUIRED` understood by backend, IR and UI.
@@ -147,6 +152,7 @@ caught. All four are fixed and now carry regression tests.
 
 | Area | State | Notes |
 | --- | --- | --- |
+| Traffic filter by provider (PLAN.md 9.23) | not implemented | The access log carries a username, not the provider that accepted it. |
 | Per-node configuration | not implemented | Every node receives the same policy. Node groups, site-specific listeners and staged rollouts are not modelled. |
 | Phase 4 — monitoring | partial | Node reachability, apply result and configuration drift are reported. No metrics, no alerting. |
 | Phase 7 — safe deployment, drift detection | not started | `config_versions` are stored; there is no diff view and no rollout. |
