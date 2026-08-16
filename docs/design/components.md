@@ -27,12 +27,12 @@ not implemented yet.
 | `PasswordInput` | built | reveal toggle, never renders an existing secret |
 | `Textarea` | built | |
 | `Select` | built | native select, styled |
-| `Combobox` | built | filterable, multi-select, keyboard driven |
+| `Combobox` | planned | filterable, multi-select, keyboard driven. Multi-select is currently a checkbox list. |
 | `Checkbox` | built | |
 | `Switch` | built | |
 | `RadioCard` | built | used for authentication mode selection |
 | `FormSection` | built | title + description + fields |
-| `FormRow` | built | label column + control + hint/error |
+| `Field` | built | label + control + hint/error; the wrapper every input uses |
 
 ## Data display
 
@@ -47,11 +47,11 @@ not implemented yet.
 | `DescriptionList` | built | key/value pairs |
 | `StatusBadge` | built | colour + label, never colour alone |
 | `HealthIndicator` | built | dot + shape + label |
-| `Tabs` | built | route-aware |
-| `Breadcrumbs` | built | |
-| `CodeViewer` | built | monospace, line numbers, copy |
-| `DiffViewer` | planned | needed for Configuration Review |
-| `ChartContainer` | built | title, legend, empty state; no chart lib yet |
+| `Tabs` | built | |
+| `Breadcrumbs` | built | part of `PageHeader`, not a standalone export |
+| `CodeViewer` | built | monospace, copy to clipboard |
+| `DiffViewer` | planned | needed for Configuration Review across versions |
+| `ChartContainer` | planned | no chart surface exists yet; metrics use `MetricCard` |
 
 ## Feedback and overlays
 
@@ -60,8 +60,8 @@ not implemented yet.
 | `Dialog` | built | focus trap, `Esc`, labelled by title |
 | `ConfirmDialog` | built | consequence text, affected entities, typed confirmation |
 | `Drawer` | built | right side, used by the rule editor |
-| `Popover` | built | |
-| `Tooltip` | built | never the only source of information |
+| `Popover` | planned | |
+| `Tooltip` | planned | native `title` is used meanwhile; never the only source of information |
 | `Toast` | built | success/error/info, auto dismiss, screen-reader live region |
 | `InlineAlert` | built | info/warning/danger/success, optional action |
 | `Skeleton` | built | matches the shape of the content it replaces |
@@ -76,9 +76,10 @@ Every interactive component documents and implements:
 Default   Hover   Focus-visible   Active   Disabled   Loading   Error   Dark
 ```
 
-The component showcase at `/system/components` (dev builds and
-`SHOW_COMPONENT_GALLERY=true`) renders every component in every state, in both
-themes — this is the Storybook substitute required by `PLAN.md` §5.
+A component showcase rendering every component in every state and both themes -
+the Storybook substitute required by `PLAN.md` §5 - is **not implemented yet**.
+The states exist in the components; there is no page that displays them side by
+side.
 
 ## Component rules
 
