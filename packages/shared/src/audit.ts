@@ -57,6 +57,7 @@ export const AUDIT_ACTIONS = [
   'LISTENER_DELETED',
   'CONFIG_COMPILED',
   'CONFIG_DEPLOYED',
+  'SETTINGS_UPDATED',
 
   // Proxy nodes and their agents
   'NODE_CREATED',

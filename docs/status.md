@@ -201,16 +201,34 @@ caught. All four are fixed and now carry regression tests.
    LDAP server waits for the probe (30 second cache, 5 second connect timeout).
    A background health loop would be better.
 
-## Suggested next steps
+## Roadmap to 1.0
 
-1. Build the node agent (Phase 3). It is now the only thing between "the
-   configuration is proven correct" and "the configuration is deployed". The
-   export endpoint and the ownership manifest already define its contract.
-2. Model anonymous-only access as a dedicated listener, so `OPTIONAL` mode can
-   enforce the distinction instead of reporting a widening.
-3. Finish the rule editor: schedules, reordering, and the wizard for complex
-   rules.
-4. Add the control plane user and role administration screen.
-5. Add the component gallery and visual regression baselines.
-6. Add per-node configuration: node groups and site-specific listeners, so a
-   fleet is not forced onto one identical policy.
+Order fixed by the product owner on 2026-08-16. TLS inspection and cache /
+upstream management are deliberately **out of the 1.0 critical path**: a very
+good 1.0 beats an overloaded one with half-hardened CA and MITM management.
+
+| # | Phase | Contents |
+| --- | --- | --- |
+| 1 | **6.5 Architecture adjustment** | Node groups, listener profiles, configuration scope, authentication per listener (ADR 0003) |
+| 2 | **7 Safe deployment** | Semantic diff, config diff, per-node deployment result, rollback, SERIAL, CANARY + SERIAL |
+| 3 | **13 Multi-node completion** | Node groups UI, group assignments, desired state, group-specific listener config |
+| 4 | **6 UI completion** | Schedules, drag and reorder, advanced rule wizard |
+| 5 | **2 Control plane identity completion** | Users UI, roles UI, OIDC alongside local, break-glass administrator |
+| 6 | **12 Advanced administration** | Backup and restore, advanced configuration, diagnostics |
+| 7 | **14 Production and UX hardening** | Visual regression, N → N+1 update test, component showcase, security review |
+| 8 | **15 Release 1.0** | |
+
+After 1.0: TLS inspection with CA management and certificate lifecycle (1.1),
+then cache management and upstream proxies (1.2).
+
+### Standing requirement for every new feature
+
+A feature is not done until its actual end-to-end path has been tested against
+a real Squid. Five defects so far were invisible to unit tests and only
+appeared under real traffic — see "Defects this found" above.
+
+For phase 7 specifically, failure injection is part of the deliverable, not a
+follow-up: invalid configuration, a node disappearing mid-deployment, a failing
+reconfigure, a failing health check, a failing canary, and the rollback path
+itself.
+

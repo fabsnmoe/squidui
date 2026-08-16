@@ -29,6 +29,8 @@ interface TrafficEvent {
   client_ip: string | null;
   username: string | null;
   http_status: number | null;
+  duration_ms: number | null;
+  destination_port: number | null;
   method: string | null;
   destination_host: string | null;
   url: string | null;
@@ -122,7 +124,10 @@ export function LogsPage(): JSX.Element {
       header: 'Destination',
       cell: (row) => (
         <div style={{ maxWidth: 360 }}>
-          <div className="scp-mono">{row.destination_host ?? '—'}</div>
+          <div className="scp-mono">
+            {row.destination_host ?? '—'}
+            {row.destination_port ? <span className="scp-hint">:{row.destination_port}</span> : null}
+          </div>
           {row.url && row.url !== row.destination_host ? (
             <div
               className="scp-hint scp-mono"
@@ -144,6 +149,14 @@ export function LogsPage(): JSX.Element {
           <StatusBadge tone={DECISION_TONE[row.decision]}>{DECISION_LABEL[row.decision]}</StatusBadge>
           <span className="scp-hint scp-numeric">{row.http_status ?? ''}</span>
         </span>
+      ),
+    },
+    {
+      id: 'duration',
+      header: 'Duration',
+      align: 'right',
+      cell: (row) => (
+        <span className="scp-numeric scp-hint">{row.duration_ms === null ? '—' : `${row.duration_ms} ms`}</span>
       ),
     },
     { id: 'node', header: 'Node', cell: (row) => <span className="scp-hint">{row.node_name}</span> },
@@ -235,8 +248,8 @@ export function LogsPage(): JSX.Element {
 
       {events.data && !events.data.urlsRecorded ? (
         <InlineAlert tone="info" title="Full URLs are not recorded">
-          This installation stores only the destination host. Full URLs are personal data, so recording them is an
-          explicit choice made through TRAFFIC_LOG_URLS.
+          This installation stores the destination host and port, but not the path or query string. Full URLs are
+          personal data, so recording them is a deliberate choice under System.
         </InlineAlert>
       ) : null}
 

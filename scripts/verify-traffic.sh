@@ -143,6 +143,35 @@ NOBODY=$(get '/traffic/events?hours=1&identity=USER&username=no-such-user&limit=
 excludes "$NOBODY" '"username":"traffic-user"' "filtering by another user returns none of theirs"
 
 echo
+
+echo
+echo "== privacy defaults (PO decision 4) =="
+SETTINGS=$(get /settings)
+contains "$SETTINGS" '"logUrls":false' "full URL logging is off by default"
+excludes "$EVENTS" '"url":"http' "no full URL is stored while the setting is off"
+contains "$EVENTS" '"destination_port"' "the destination port is recorded"
+contains "$EVENTS" '"duration_ms"' "the request duration is recorded"
+
+# Enabling it is a deliberate act and has to be audited.
+curl -s -o /dev/null -X PATCH "$BASE/settings" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"trafficLogUrls":true}'
+contains "$(get /settings)" '"logUrls":true' "an operator can enable full URL logging at runtime"
+contains "$(get '/audit-events?limit=20')" 'SETTINGS_UPDATED' "the change is audited"
+
+# Requests made after the change carry the full URL.
+for _ in 1 2; do through_auth >/dev/null; done
+URLFOUND=0
+DEADLINE=$(( $(date +%s) + 60 ))
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  if get '/traffic/events?hours=1&limit=200' | grep -q '"url":"http'; then URLFOUND=1; break; fi
+  sleep 5
+done
+if [ "$URLFOUND" -eq 1 ]; then ok "new requests record the full URL once enabled"; else bad "full URL recorded after enabling"; fi
+
+curl -s -o /dev/null -X PATCH "$BASE/settings" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"trafficLogUrls":false}'
+ok "setting restored to the private default"
+
 echo "== aggregates feed the dashboard =="
 # The agent ships in batches, so the first event arriving does not mean all of
 # them have. Poll until the count matches rather than asserting on a race.

@@ -6,6 +6,7 @@ import { badRequest, clientIp, unauthorized, HttpError } from '../http/context.j
 import { AuthenticationProviderRegistry } from '../providers/registry.js';
 import { configurationHash, hashCredential, generateCredential, looksLike } from '../security/agentAuth.js';
 import { compileCurrentConfiguration } from '../services/configuration.js';
+import { getSetting, SETTING_TRAFFIC_LOG_URLS } from '../services/settings.js';
 import { ingestAccessLog } from '../services/traffic.js';
 import type { AppContext } from '../server.js';
 
@@ -216,7 +217,9 @@ export async function registerAgentRoutes(app: FastifyInstance, context: AppCont
     if (!parsed.success) throw badRequest('Invalid log payload.', parsed.error.issues);
 
     const result = await ingestAccessLog(db, agent.nodeId, parsed.data.lines, {
-      logUrls: config.traffic.logUrls,
+      // The runtime setting wins over the environment: an operator turns full
+      // URL logging on in the UI, not by redeploying a container.
+      logUrls: await getSetting(db, SETTING_TRAFFIC_LOG_URLS, config.traffic.logUrls),
       retentionDays: config.traffic.retentionDays,
     });
 

@@ -159,8 +159,10 @@ and stores it:
 - **Bounded storage.** Individual requests are kept for `TRAFFIC_RETENTION_DAYS`
   (30 by default); hourly counters outlive them and are what the dashboard and
   the portal read, so neither gets slower as the product runs.
-- **URLs are treated as personal data.** `TRAFFIC_LOG_URLS=false` records only
-  the destination host, and the UI states which mode is in effect.
+- **URLs are treated as personal data and are off by default.** Only the
+  destination host and port are recorded, never the path or query string.
+  Full URL logging is switched on deliberately under System, with a plain
+  statement of what that means for the people using the proxy.
 - **Portal statistics are scoped to the signed-in user** and to nothing else.
 
 ### Safety and accountability
@@ -725,7 +727,10 @@ portal, full Docker Compose deployment.
 | Staged rollouts | A policy change reaches all nodes at once; there is no canary or ring deployment. |
 | Enforcing "anonymous only" in optional mode | Squid challenges on any `proxy_auth` reference, so such a rule also matches authenticated clients. The compiler reports the widening. |
 
-| TLS inspection, cache and upstream management, multi-node | Planned. |
+| TLS inspection, CA management | Deliberately out of 1.0; planned for 1.1. |
+| Cache management, upstream proxies | Planned for 1.2. |
+| Node groups, listener profiles, per-group configuration | Next up — see ADR 0003. |
+| Staged rollouts (serial, canary) | Next up after the architecture adjustment. |
 | Rule editor wizard, schedules in the editor, drag-to-reorder | The API supports them; the editor does not expose all of it yet. |
 | Control plane user administration UI | Roles and users exist and are seeded; there is no screen yet. |
 

@@ -72,7 +72,7 @@ async function insertEvents(
   entries: readonly AccessLogEntry[],
   options: IngestOptions,
 ): Promise<void> {
-  const columns = 11;
+  const columns = 13;
   const values: unknown[] = [];
   const tuples: string[] = [];
 
@@ -80,7 +80,8 @@ async function insertEvents(
     const base = index * columns;
     tuples.push(
       `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, ` +
-        `$${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11})`,
+        `$${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, ` +
+        `$${base + 12}, $${base + 13})`,
     );
     values.push(
       nodeId,
@@ -92,6 +93,8 @@ async function insertEvents(
       entry.bytes,
       entry.method,
       entry.destinationHost,
+      entry.destinationPort,
+      entry.durationMs,
       // Full URLs are personal data. When TRAFFIC_LOG_URLS is off the host is
       // still recorded, which answers "where did traffic go" without keeping
       // every page a user opened.
@@ -103,7 +106,7 @@ async function insertEvents(
   await db.query(
     `insert into traffic_events
        (node_id, occurred_at, client_ip, username, squid_status, http_status, bytes,
-        method, destination_host, url, decision)
+        method, destination_host, destination_port, duration_ms, url, decision)
      values ${tuples.join(', ')}`,
     values,
   );

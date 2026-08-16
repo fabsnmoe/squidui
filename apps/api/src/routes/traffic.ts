@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { requirePermission } from '../http/context.js';
+import { getSetting, SETTING_TRAFFIC_LOG_URLS } from '../services/settings.js';
 import type { AppContext } from '../server.js';
 
 /**
@@ -70,7 +71,8 @@ export async function registerTrafficRoutes(app: FastifyInstance, context: AppCo
 
     const { rows } = await db.query(
       `select e.id::text as id, e.occurred_at, e.client_ip, e.username, e.squid_status,
-              e.http_status, e.bytes, e.method, e.destination_host, e.url, e.decision,
+              e.http_status, e.bytes, e.duration_ms, e.method, e.destination_host,
+              e.destination_port, e.url, e.decision,
               n.name as node_name
        from traffic_events e
        join proxy_nodes n on n.id = e.node_id
@@ -87,7 +89,7 @@ export async function registerTrafficRoutes(app: FastifyInstance, context: AppCo
       hours,
       identityFilters: IDENTITY_FILTERS,
       /** The UI states this rather than silently showing a host-only column. */
-      urlsRecorded: config.traffic.logUrls,
+      urlsRecorded: await getSetting(db, SETTING_TRAFFIC_LOG_URLS, config.traffic.logUrls),
       retentionDays: config.traffic.retentionDays,
     };
   });

@@ -97,8 +97,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     bootstrapAdminPassword: env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || null,
     seedDemoData: (env.SEED_DEMO_DATA ?? 'false').toLowerCase() === 'true',
     traffic: {
-      retentionDays: optionalNumber(env.TRAFFIC_RETENTION_DAYS, 30),
-      logUrls: (env.TRAFFIC_LOG_URLS ?? 'true').toLowerCase() !== 'false',
+      retentionDays: optionalNumber(env.TRAFFIC_LOG_RETENTION_DAYS ?? env.TRAFFIC_RETENTION_DAYS, 30),
+      // Off unless explicitly enabled: recording full URLs is a privacy
+      // decision, and the runtime setting in the UI is the primary switch.
+      logUrls: (env.TRAFFIC_LOG_URLS ?? 'false').toLowerCase() === 'true',
     },
     build: {
       appVersion: env.APP_VERSION ?? '0.0.0-dev',

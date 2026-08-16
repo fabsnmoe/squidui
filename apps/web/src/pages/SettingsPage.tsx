@@ -8,10 +8,12 @@ import {
   PageHeader,
   PasswordInput,
   StatusBadge,
+  Switch,
   useToast,
 } from '@scp/ui';
 import { ApiError, api } from '../lib/api.js';
 import { useSession } from '../lib/session.js';
+import { useQuery } from '../lib/useQuery.js';
 import { useTheme } from '../lib/theme.js';
 
 export function SettingsPage(): JSX.Element {
@@ -22,6 +24,23 @@ export function SettingsPage(): JSX.Element {
   const [next, setNext] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const settings = useQuery<{
+    traffic: { logUrls: boolean; retentionDays: number; retentionConfigurableAt: string };
+  }>((signal) => api('/settings', { signal }));
+
+  const setTrafficLogUrls = async (enabled: boolean): Promise<void> => {
+    try {
+      await api('/settings', { method: 'PATCH', body: { trafficLogUrls: enabled } });
+      toast.success(
+        enabled ? 'Full URL logging enabled' : 'Full URL logging disabled',
+        enabled ? 'New requests will record the complete URL.' : 'Only the destination host and port are recorded.',
+      );
+      settings.reload();
+    } catch (cause) {
+      toast.error('Could not change the setting', cause instanceof ApiError ? cause.message : 'Unexpected error.');
+    }
+  };
 
   const changePassword = async (): Promise<void> => {
     setBusy(true);
@@ -103,6 +122,60 @@ export function SettingsPage(): JSX.Element {
           <Button variant={theme === 'dark' ? 'primary' : 'secondary'} icon="moon" onClick={() => set('dark')}>
             Dark
           </Button>
+        </div>
+      </Card>
+
+      <Card
+        title="Traffic logging"
+        description="What is recorded about each request the proxies handle."
+      >
+        <div className="scp-stack">
+          <DescriptionList
+            items={[
+              {
+                term: 'Always recorded',
+                description: (
+                  <span className="scp-secondary">
+                    Time, node, client address, username when present, destination host and port, method, HTTP
+                    status, bytes, duration, cache result and policy result.
+                  </span>
+                ),
+              },
+              {
+                term: 'Retention',
+                description: (
+                  <span>
+                    {settings.data?.traffic.retentionDays ?? 30} days for individual requests
+                    <span className="scp-hint">
+                      {' '}
+                      — set with {settings.data?.traffic.retentionConfigurableAt ?? 'TRAFFIC_LOG_RETENTION_DAYS'}.
+                      Hourly counters are kept beyond that.
+                    </span>
+                  </span>
+                ),
+              },
+            ]}
+          />
+
+          <Switch
+            checked={settings.data?.traffic.logUrls ?? false}
+            label="Record the full request URL"
+            description="Off by default. The destination host and port are always recorded; this adds the path and query string."
+            onChange={(value) => void setTrafficLogUrls(value)}
+          />
+
+          {settings.data?.traffic.logUrls ? (
+            <InlineAlert tone="warning" title="Full URLs are being recorded">
+              This stores considerably more detailed usage data about individual people — every path and query
+              string, which can include search terms, document identifiers and tokens. Make sure this is covered by
+              your organisation's policy and, where applicable, agreed with the works council.
+            </InlineAlert>
+          ) : (
+            <InlineAlert tone="info" title="Only the destination is recorded">
+              Logs show that someone reached example.com:443, not which page they opened. Enabling full URLs stores
+              considerably more detailed usage data about individual people.
+            </InlineAlert>
+          )}
         </div>
       </Card>
 

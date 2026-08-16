@@ -11,6 +11,7 @@ import { registerAgentRoutes } from './routes/agent.js';
 import { registerNodeRoutes } from './routes/nodes.js';
 import { registerPolicyRoutes } from './routes/policies.js';
 import { registerPortalRoutes } from './routes/portal.js';
+import { registerSettingsRoutes } from './routes/settings.js';
 import { registerTrafficRoutes } from './routes/traffic.js';
 import { registerProxyAuthRoutes } from './routes/proxyAuth.js';
 import { registerProxyIdentityRoutes } from './routes/proxyIdentity.js';
@@ -122,6 +123,7 @@ export async function buildServer(db: Db, config: AppConfig): Promise<FastifyIns
       await registerConfigurationRoutes(instance, context);
       await registerDashboardRoutes(instance, context);
       await registerTrafficRoutes(instance, context);
+      await registerSettingsRoutes(instance, context);
       await registerAuditRoutes(instance, context);
     },
     { prefix: '/api/v1' },
