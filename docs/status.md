@@ -18,7 +18,7 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 | `docker compose run --rm migrate` | schema applied, bootstrap idempotent |
 | `docker compose up -d` | postgres, redis, api, web all healthy |
 | `GET /api/health/ready` | `200 {"status":"ready"}` |
-| `./scripts/verify-e2e.sh` | 47 checks pass |
+| `./scripts/verify-e2e.sh` | 49 checks pass |
 | `./scripts/verify-listeners.sh` | 22 checks pass: corporate and guest listener on one node |
 | `./scripts/verify-squid.sh` | 38 checks pass against a real Squid and OpenLDAP |
 | `./scripts/verify-nodes.sh` | 26 checks pass across two real proxy nodes with their agents |
@@ -77,6 +77,13 @@ caught. All are fixed and now carry regression tests.
    port. Rules that need an identity are now restricted to the listeners that
    can produce one. See ADR 0003, "A dedicated listener is not sufficient on
    its own".
+6. **A fresh installation had no listener at all.** The bootstrap still wrote
+   the default into the superseded `listeners` table, so on an empty database
+   `listener_profiles` stayed empty and the compiler produced a configuration
+   without a single `http_port`. Every new installation shipped a Squid that
+   would not have accepted traffic. Found while setting up a clean instance,
+   not by any suite, because every existing environment had the profile from
+   the 0005 migration.
 
 ## Implemented
 
@@ -301,3 +308,29 @@ lines. The term is omitted when every listener authenticates.
 irrelevant. Only the request itself — an anonymous client on `:3129` expecting
 `200` — could distinguish a configuration that looks right from one that
 behaves right.
+
+
+## Defect seven: a fresh installation compiled a proxy with no listener
+
+Found by installing the product from an empty database, which no verification
+script did until now.
+
+**Symptom.** A clean install came up healthy - all containers running, the API
+ready, demo data seeded - and the compiled configuration contained no
+`http_port`. Squid would have started and served nothing.
+
+**Cause.** Migration 0005 made `listener_profiles` the source of truth and left
+`listeners` in place for rollback only. The bootstrap was never moved across.
+On an existing database this was invisible: 0005 had already copied the
+listener into a profile. On an empty one the migration ran over an empty table,
+the bootstrap wrote a row nothing reads, and the profile list stayed empty.
+
+**Fix.** The bootstrap ensures a default listener profile. `verify-e2e.sh` now
+asserts that the compiled configuration opens at least one port and that the
+compiler reports no `NO_LISTENER` warning.
+
+**Lesson worth keeping.** Every environment in this project grew through the
+migrations. A defect that only exists on a database that starts empty is
+invisible to all of them, and no amount of end-to-end testing against a
+long-lived environment would have found it. The install path needs testing as
+its own path.

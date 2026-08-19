@@ -83,16 +83,23 @@ export async function bootstrap(
     );
     summary.push('local provider ensured');
 
-    // --- default listener --------------------------------------------------
-    const { rows: listenerCount } = await client.query<{ count: string }>(
-      'select count(*)::text as count from listeners',
+    // --- default listener profile ------------------------------------------
+    // listener_profiles is the source of truth since ADR 0003; the legacy
+    // listeners table is retained for rollback only and is no longer read.
+    // Writing the default there instead left a fresh installation with no
+    // listener at all, so the compiler produced a configuration without a
+    // single http_port and Squid would not have accepted any traffic.
+    const { rows: profileCount } = await client.query<{ count: string }>(
+      'select count(*)::text as count from listener_profiles',
     );
-    if ((listenerCount[0]?.count ?? '0') === '0') {
+    if ((profileCount[0]?.count ?? '0') === '0') {
       await client.query(
-        `insert into listeners (name, address, port, mode, enabled)
-         values ('Default forward proxy', '0.0.0.0', 3128, 'FORWARD', true)`,
+        `insert into listener_profiles
+           (name, description, address, port, mode, enabled, authentication_mode, group_id)
+         values ('Default forward proxy', 'Created during installation.',
+                 '0.0.0.0', 3128, 'FORWARD', true, 'INHERIT', null)`,
       );
-      summary.push('default listener created');
+      summary.push('default listener profile created');
     }
   });
 

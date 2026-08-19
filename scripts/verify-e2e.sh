@@ -80,6 +80,12 @@ contains "$O" 'openProxyAcknowledgedBy' "the acknowledgement is attributed"
 
 echo "== configuration compilation =="
 C=$(get /configuration/preview)
+# A configuration without a single http_port makes Squid refuse to serve
+# anything. It happened on every fresh installation once, because the bootstrap
+# still wrote the default into the superseded listeners table, so this is
+# checked before anything else the compiler produces.
+contains "$C" 'http_port' "the compiled configuration opens at least one port"
+excludes "$C" 'NO_LISTENER' "the compiler does not report a missing listener"
 contains "$C" 'http_access allow all' "disabled mode compiles an allow-any policy"
 excludes "$C" 'auth_param' "no auth_param while authentication is disabled"
 
