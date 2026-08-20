@@ -145,6 +145,13 @@ export const NAVIGATION: NavGroup[] = [
     label: 'System',
     items: [
       {
+        label: 'Identity providers',
+        to: '/system/identity-providers',
+        icon: 'key',
+        permission: 'CP_USER_READ',
+        keywords: ['oidc', 'keycloak', 'sso', 'single sign-on', 'openid'],
+      },
+      {
         label: 'Audit log',
         to: '/system/audit',
         icon: 'audit',

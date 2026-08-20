@@ -104,6 +104,115 @@ export function PortalApp(): JSX.Element {
 
 /* -------------------------------------------------------------------------- */
 
+interface ProxyAccountState {
+  managed: boolean;
+  hasAccount: boolean;
+  username: string;
+  passwordUpdatedAt?: string | null;
+  notice?: string;
+}
+
+/**
+ * The bridge between the two identity planes (ADR 0004).
+ *
+ * Signing in with an organisational identity proves who someone is. It does not
+ * give Squid anything to check, because the proxy speaks HTTP Basic and cannot
+ * consume a token. So the person sets a proxy password here, and that is what
+ * the proxy will ask for.
+ */
+function ProxyAccountSection(): JSX.Element | null {
+  const toast = useToast();
+  const account = useQuery<ProxyAccountState>((signal) => api('/portal/proxy-account', { signal }));
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const data = account.data;
+  // Local proxy users already are their own account; nothing to provision.
+  if (!data || !data.managed) return null;
+
+  const submit = async (): Promise<void> => {
+    setError(null);
+    if (password !== confirmation) {
+      setError('The two passwords do not match.');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (data.hasAccount) {
+        await api('/portal/proxy-account/password', { method: 'POST', body: { password } });
+        toast.success('Proxy password changed', 'Use it the next time the proxy asks for credentials.');
+      } else {
+        await api('/portal/proxy-account', {
+          method: 'POST',
+          body: { username: username || data.username, password },
+        });
+        toast.success('Proxy account created', 'You can now authenticate against the proxy.');
+      }
+      setPassword('');
+      setConfirmation('');
+      account.reload();
+    } catch (cause) {
+      const message = cause instanceof ApiError ? cause.message : 'Unexpected error.';
+      const violations =
+        cause instanceof ApiError && Array.isArray(cause.details)
+          ? (cause.details as Array<{ message?: string }>).map((entry) => entry.message).filter(Boolean)
+          : [];
+      setError(violations.length > 0 ? `${message} ${violations.join(' ')}` : message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card
+      title={data.hasAccount ? 'Proxy password' : 'Create your proxy account'}
+      description={
+        data.hasAccount
+          ? 'The credentials the proxy asks for when you browse.'
+          : 'You are signed in, but the proxy cannot check a sign-in token. Choose the credentials it will ask for.'
+      }
+    >
+      <InlineAlert tone="info" title="This is not your organisational password">
+        {data.notice ??
+          'This password is used only by the proxy. It is separate from your organisational password and is never checked against it.'}
+      </InlineAlert>
+      {error ? (
+        <InlineAlert tone="danger" title="Could not save">
+          {error}
+        </InlineAlert>
+      ) : null}
+      {data.hasAccount ? (
+        <p className="scp-secondary">
+          Your proxy username is <span className="scp-mono">{data.username}</span>.
+        </p>
+      ) : (
+        <Input
+          label="Proxy username"
+          value={username || data.username}
+          hint="Suggested from your account. It has to be unique across the proxy."
+          onChange={(event) => setUsername(event.target.value)}
+        />
+      )}
+      <PasswordInput
+        label={data.hasAccount ? 'New proxy password' : 'Proxy password'}
+        value={password}
+        onChange={(event) => setPassword(event.target.value)}
+      />
+      <PasswordInput
+        label="Repeat password"
+        value={confirmation}
+        onChange={(event) => setConfirmation(event.target.value)}
+      />
+      <Button variant="primary" loading={busy} disabled={password.length === 0} onClick={() => void submit()}>
+        {data.hasAccount ? 'Change proxy password' : 'Create proxy account'}
+      </Button>
+    </Card>
+  );
+}
+
 function AccountSection(): JSX.Element {
   const toast = useToast();
   const profile = useQuery<Profile>((signal) => api('/portal/me', { signal }));
@@ -156,6 +265,8 @@ function AccountSection(): JSX.Element {
 
   return (
     <>
+      {/* Renders nothing for a local proxy user, who already has an account. */}
+      <ProxyAccountSection />
       <Card title="Account" description="How the proxy knows you.">
         <DescriptionList
           items={[

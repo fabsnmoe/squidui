@@ -12,6 +12,8 @@ import { registerListenerProfileRoutes } from './routes/listenerProfiles.js';
 import { registerNodeRoutes } from './routes/nodes.js';
 import { registerPolicyRoutes } from './routes/policies.js';
 import { registerPortalRoutes } from './routes/portal.js';
+import { registerPortalOidcRoutes } from './routes/portalOidc.js';
+import { registerOidcRoutes } from './routes/oidc.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerTrafficRoutes } from './routes/traffic.js';
 import { registerProxyAuthRoutes } from './routes/proxyAuth.js';
@@ -116,6 +118,8 @@ export async function buildServer(db: Db, config: AppConfig): Promise<FastifyIns
     async (instance) => {
       await registerSessionRoutes(instance, context);
       await registerPortalRoutes(instance, context);
+      await registerPortalOidcRoutes(instance, context);
+      await registerOidcRoutes(instance, context);
       await registerNodeRoutes(instance, context);
       await registerListenerProfileRoutes(instance, context);
       await registerAgentRoutes(instance, context);

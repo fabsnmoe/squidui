@@ -364,6 +364,69 @@ protection you have.
 
 ---
 
+## Signing in with Keycloak or another OIDC provider
+
+**Squid cannot use OIDC.** Proxy authentication is HTTP Basic: a client sends a
+username and a password and a helper answers yes or no. There is no browser in
+that exchange and no way to redeem a token. OIDC therefore authenticates
+*people in the web interface*, never traffic.
+
+The bridge is explicit. A person signs in with their organisational identity and
+provisions themselves a proxy account with a password of their choosing. That
+password reaches Squid through the same NCSA file as any local proxy user.
+
+### Configure the provider
+
+`System -> Identity providers -> Add provider`:
+
+| Field | Keycloak |
+| --- | --- |
+| Issuer URL | `https://keycloak.example.de/realms/<realm>` |
+| Client ID | the client you created |
+| Client secret | for a confidential client; leave empty for a public one (PKCE is always used) |
+| Username claim | `preferred_username` |
+
+The page shows the **redirect URI** to register with the provider. Set
+`PUBLIC_BASE_URL` in `.env` when the control plane runs behind a reverse proxy,
+otherwise it is derived from the request and will not match what the provider
+expects.
+
+### Two doors, one provider
+
+```text
+May sign in to the control plane   -> full Administrator, gated by one claim
+May sign in to the portal          -> may provision a proxy account
+```
+
+Admission is a single claim comparison per door, for example
+`realm_access.roles` containing `squid-admin`. An empty claim admits every
+authenticated user of that provider.
+
+There is no partial permission mapping: anyone admitted through the admin door
+is a full administrator. That is deliberate - see
+[ADR 0004](docs/architecture/adr/0004-oidc-identity.md). Use local accounts and
+roles where finer control is needed.
+
+### What the user does
+
+1. Signs in at the portal with **Continue with Keycloak**.
+2. Chooses a proxy username and a proxy password.
+3. Uses those credentials when the proxy asks - **not** the Keycloak password,
+   which the proxy has no way to check.
+
+Their own statistics and access profile are visible in the portal as for any
+other proxy user.
+
+### Known limitation
+
+**Deprovisioning is not automatic.** Disabling a user in Keycloak stops them
+signing in; it does not disable the proxy account they already have, because the
+control plane only learns about the directory when someone signs in. Removing
+proxy access remains an explicit administrative act until a reconciliation job
+exists.
+
+---
+
 ## Configuration
 
 Everything is configured through `.env`. Full template in
