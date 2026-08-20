@@ -299,6 +299,71 @@ curl -fsS http://localhost:8080/api/health/ready
 
 ---
 
+## First run: what to set up, in order
+
+A fresh installation is running but not yet proxying anything. These are the
+steps, and the order matters.
+
+**1. Confirm there is a listener.** `Infrastructure -> Listeners` should show
+one entry, `0.0.0.0:3128`, created during installation. **Without a listener
+Squid has no port to accept traffic on and refuses to serve**, with:
+
+```text
+ERROR: No forward-proxy ports configured
+```
+
+If the list is empty, create one: bind `0.0.0.0`, port `3128`, authentication
+`Inherit the global default`, assigned to `All node groups`.
+
+**2. Add a proxy node.** `Infrastructure -> Nodes -> Add node`, then issue an
+enrolment token and start the agent on the proxy host (see
+[Proxy nodes](#proxy-nodes--one-or-many)). The node reports `Drift` until it has
+fetched and applied its configuration, then `Healthy`.
+
+**3. Choose the authentication mode.** `Authentication -> Overview`. `Disabled`
+lets every client through, `Required` challenges each one. A listener set to
+`Inherit` follows this setting; a listener with its own mode overrides it, which
+is how a corporate port and a guest port coexist on one node.
+
+**4. Create the identities.** `Authentication -> Local users` for local
+accounts, `Authentication -> Providers` to add a directory.
+
+**5. Write the access rules.** `Policies -> Access rules`. Rules are evaluated
+top to bottom; the default policy at the bottom decides what happens when none
+matched.
+
+**6. Check before you trust it.** `Configuration -> Review` shows the generated
+`squid.conf` for a chosen node, including compiler warnings. Then send a request
+through the proxy and confirm it appears under `Observability -> Traffic logs`:
+
+```bash
+curl -x http://<proxy-host>:3128 -I http://example.com
+```
+
+### If the node stays unhealthy
+
+The node detail panel shows the agent's own error message under the status.
+A configuration that fails `squid -k parse` is never applied - the node keeps
+serving what it had and reports the failure instead.
+
+### If the control plane is behind a CDN or WAF
+
+Node agents are machine clients: no browser, no cookies, no JavaScript. Bot
+protection and managed WAF rules block them, and the agent then reports a
+`403` that never came from the control plane. Exclude the agent endpoints from
+those protections:
+
+```text
+URI path starts with   /api/v1/agent/
+Action                 Skip: managed rules, bot protection
+```
+
+Scope the exception to that prefix. The agent endpoints authenticate with their
+own `X-Agent-Key` credential; the rest of the API should stay behind whatever
+protection you have.
+
+---
+
 ## Configuration
 
 Everything is configured through `.env`. Full template in

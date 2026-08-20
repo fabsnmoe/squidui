@@ -334,3 +334,29 @@ migrations. A defect that only exists on a database that starts empty is
 invisible to all of them, and no amount of end-to-end testing against a
 long-lived environment would have found it. The install path needs testing as
 its own path.
+
+
+## Defect eight: every overlay stole focus on each keystroke
+
+Reported by the first person to use the product who did not write it, which is
+the only reason it was found at all.
+
+**Symptom.** In any drawer or dialog, typing one character moved the cursor out
+of the field and onto the close button in the header. Filling in a form meant
+one keystroke, one click back into the field, repeat.
+
+**Cause.** `useOverlayBehaviour` listed `onClose` in its dependency array.
+Callers build that handler during render, so it has a new identity on every
+render; typing changed parent state, the overlay re-rendered, and the effect
+re-ran - moving focus to the first focusable element, which in DOM order is the
+header close button rather than any field.
+
+**Fix.** The handler is read through a ref, so the effect depends only on
+whether the overlay is open. Initial focus now looks in the overlay body first
+and only considers fields, never the control that discards the work.
+
+**Lesson worth keeping.** Every automated check passed, every screen rendered
+correctly, and the product was close to unusable for its actual purpose. Nothing
+in this repository types into a form. Until something does, this class of defect
+is invisible here - which is an argument for the interaction tests in phase 14
+being real tests, not screenshots.

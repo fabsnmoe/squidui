@@ -143,6 +143,12 @@ loopback-bound convenience mapping in the dev overlay).
 
 ## Putting TLS in front
 
+Node agents are machine clients. Bot protection and managed WAF rules in front
+of the control plane block them, and the agent then fails to enrol with a `403`
+that never reached the API. Exclude `/api/v1/agent/` from those protections -
+that prefix only, since the agent endpoints carry their own `X-Agent-Key`
+credential while the rest of the API should stay protected.
+
 The stack terminates plain HTTP on `WEB_PORT`. Put a reverse proxy (nginx,
 Caddy, Traefik) in front for TLS. The API reads `X-Forwarded-For`, so client
 addresses in the audit log stay correct as long as the proxy sets it.

@@ -117,16 +117,37 @@ async function writeState(config: AgentConfig, state: StoredState): Promise<void
 /* Control plane calls                                                         */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * One readable line out of a foreign error page. HTML from a proxy is mostly
+ * markup, so the tags are stripped and the rest is capped - enough to
+ * recognise who answered without filling the log with a stylesheet.
+ */
+function summarise(body: string): string {
+  const text = body
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (text.length === 0) return '(empty response body)';
+  return text.length > 200 ? `${text.slice(0, 200)}...` : text;
+}
+
 async function call<T>(
   config: AgentConfig,
   path: string,
   options: { method?: string; body?: unknown; agentKey?: string } = {},
 ): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  // Node's fetch sends no User-Agent at all, and a client without one is
+  // exactly what bot protection in front of a control plane blocks. Naming
+  // ourselves also gives an operator something to write an exception against.
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'User-Agent': `scp-agent/${AGENT_VERSION}`,
+  };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   if (options.agentKey) headers['X-Agent-Key'] = options.agentKey;
 
-  const response = await fetch(`${config.apiUrl}/api/v1${path}`, {
+  const url = `${config.apiUrl}/api/v1${path}`;
+  const response = await fetch(url, {
     method: options.method ?? 'GET',
     headers,
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
@@ -134,11 +155,19 @@ async function call<T>(
 
   const text = await response.text();
   if (!response.ok) {
-    let message = `${response.status}`;
+    // The control plane answers with {error:{code,message}}. Anything else came
+    // from something between the agent and the control plane - a reverse proxy,
+    // a captive portal, a corporate proxy - and that answer is the only clue
+    // the operator has. Reporting a bare status code here left a real
+    // enrolment failure undiagnosable, so the response is quoted instead.
+    let message: string;
     try {
-      message = (JSON.parse(text) as { error?: { message?: string } }).error?.message ?? message;
+      const parsed = JSON.parse(text) as { error?: { message?: string } };
+      message =
+        parsed.error?.message ??
+        `${response.status} from ${url}, but not from the control plane: ${summarise(text)}`;
     } catch {
-      /* keep the status code */
+      message = `${response.status} from ${url}, answered by something that is not the control plane: ${summarise(text)}`;
     }
     const error = new Error(message) as Error & { status?: number };
     error.status = response.status;

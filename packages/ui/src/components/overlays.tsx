@@ -10,20 +10,35 @@ import { Button, IconButton, Input } from './primitives.js';
 function useOverlayBehaviour(open: boolean, onClose: () => void, containerRef: React.RefObject<HTMLElement>): void {
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
+  // Callers build their close handler during render, so it has a new identity
+  // every time. Depending on it directly re-ran this effect on every keystroke,
+  // which moved focus out of the field being typed into and onto the first
+  // focusable element - the close button in the header. One character per
+  // click, which is how it was reported. The handler is read through a ref so
+  // the effect depends only on whether the overlay is open.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!open) return undefined;
     previouslyFocused.current = document.activeElement as HTMLElement | null;
 
     const container = containerRef.current;
-    const focusable = container?.querySelector<HTMLElement>(
-      'input:not([type="hidden"]):not([disabled]), select, textarea, button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
-    );
+    // The body first: the first thing an operator wants to type into is a
+    // field, never the control that throws their work away.
+    const body = container?.querySelector<HTMLElement>('.scp-drawer-body, .scp-dialog-body');
+    const fieldSelector =
+      'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])';
+    const focusable =
+      body?.querySelector<HTMLElement>(fieldSelector) ??
+      container?.querySelector<HTMLElement>(fieldSelector) ??
+      body?.querySelector<HTMLElement>('button:not([disabled]), a[href]');
     (focusable ?? container)?.focus();
 
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !container) return;
@@ -55,7 +70,7 @@ function useOverlayBehaviour(open: boolean, onClose: () => void, containerRef: R
       document.body.style.overflow = previousOverflow;
       previouslyFocused.current?.focus();
     };
-  }, [open, onClose, containerRef]);
+  }, [open, containerRef]);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -94,7 +109,7 @@ export function Dialog({ open, onClose, title, children, actions }: DialogProps)
           <span className="scp-spacer" />
           <IconButton label="Close" icon="close" onClick={onClose} />
         </div>
-        <div className="scp-stack">{children}</div>
+        <div className="scp-stack scp-dialog-body">{children}</div>
         {actions ? <div className="scp-dialog-actions">{actions}</div> : null}
       </div>
     </div>
