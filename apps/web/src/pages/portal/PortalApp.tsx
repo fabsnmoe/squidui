@@ -5,10 +5,12 @@ import {
   Card,
   DataTable,
   DescriptionList,
+  Dialog,
   ErrorState,
   Icon,
   IconButton,
   InlineAlert,
+  Input,
   MetricCard,
   Page,
   PageHeader,
@@ -110,7 +112,18 @@ interface ProxyAccountState {
   username: string;
   passwordUpdatedAt?: string | null;
   notice?: string;
+  lease?: {
+    days: number;
+    renewalWindowDays: number;
+    validUntil: string | null;
+    renewableFrom: string | null;
+    inRenewalWindow: boolean;
+    noticeDue: boolean;
+  };
 }
+
+const daysUntil = (iso: string): number =>
+  Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000));
 
 /**
  * The bridge between the two identity planes (ADR 0004).
@@ -166,7 +179,48 @@ function ProxyAccountSection(): JSX.Element | null {
     }
   };
 
+  const lease = data.lease;
+  const acknowledge = async (): Promise<void> => {
+    try {
+      await api('/portal/proxy-account/acknowledge', { method: 'POST' });
+    } finally {
+      account.reload();
+    }
+  };
+
   return (
+    <>
+      {/* Told once when access is granted, and again when it is about to run
+          out. There is no mail in this product, so the portal is the only
+          place this can reach a person. */}
+      <Dialog
+        open={Boolean(lease?.noticeDue && lease?.validUntil)}
+        onClose={() => void acknowledge()}
+        title={lease?.inRenewalWindow ? 'Your proxy access is about to expire' : 'Your proxy access is time limited'}
+        actions={
+          <Button variant="primary" onClick={() => void acknowledge()}>
+            Understood
+          </Button>
+        }
+      >
+        {lease?.validUntil ? (
+          <>
+            <p>
+              Your access is valid until <strong>{formatDateTime(lease.validUntil)}</strong>, which is in{' '}
+              <strong>{daysUntil(lease.validUntil)} day(s)</strong>.
+            </p>
+            <p className="scp-secondary">
+              Sign in here again to extend it by another {lease.days} days. Renewal is possible from{' '}
+              {lease.renewalWindowDays} day(s) before it expires. Signing in re-checks with your organisation that
+              you are still entitled to proxy access, which is why it cannot be extended automatically.
+            </p>
+            <p className="scp-secondary">
+              If it does expire, the proxy stops accepting your credentials until you sign in here again.
+            </p>
+          </>
+        ) : null}
+      </Dialog>
+
     <Card
       title={data.hasAccount ? 'Proxy password' : 'Create your proxy account'}
       description={
@@ -209,7 +263,16 @@ function ProxyAccountSection(): JSX.Element | null {
       <Button variant="primary" loading={busy} disabled={password.length === 0} onClick={() => void submit()}>
         {data.hasAccount ? 'Change proxy password' : 'Create proxy account'}
       </Button>
+      {lease?.validUntil ? (
+        <p className="scp-hint">
+          Access valid until {formatDateTime(lease.validUntil)} ({daysUntil(lease.validUntil)} day(s)).
+          {lease.inRenewalWindow
+            ? ' Sign out and sign in again to extend it.'
+            : ` It can be extended from ${lease.renewalWindowDays} day(s) before that.`}
+        </p>
+      ) : null}
     </Card>
+    </>
   );
 }
 

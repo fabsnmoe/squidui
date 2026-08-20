@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { hashProxyPassword, validatePasswordStrength } from '@scp/shared/crypt';
 import { recordAudit } from '../audit/sink.js';
 import { badRequest, conflict, requirePortalAuth, unauthorized } from '../http/context.js';
+import { accessLeasePolicy } from '../services/settings.js';
 import type { AppContext } from '../server.js';
 
 /**
@@ -64,12 +65,23 @@ export async function registerPortalOidcRoutes(app: FastifyInstance, context: Ap
       status: string;
       password_updated_at: Date | null;
       created_at: Date;
+      valid_until: Date | null;
+      last_verified_at: Date | null;
+      lease_notice_ack_at: Date | null;
     }>(
-      `select username, status, password_updated_at, created_at from proxy_users
-       where oidc_issuer = $1 and oidc_subject = $2`,
+      `select username, status, password_updated_at, created_at,
+              valid_until, last_verified_at, lease_notice_ack_at
+       from proxy_users where oidc_issuer = $1 and oidc_subject = $2`,
       [issuer, identity.subject],
     );
     const account = rows[0];
+    const policy = await accessLeasePolicy(db);
+
+    const expiry = account?.valid_until ?? null;
+    const renewableFrom = expiry
+      ? new Date(expiry.getTime() - policy.renewalWindowDays * 86_400_000)
+      : null;
+    const inRenewalWindow = renewableFrom !== null && Date.now() >= renewableFrom.getTime();
 
     return {
       managed: true,
@@ -78,6 +90,28 @@ export async function registerPortalOidcRoutes(app: FastifyInstance, context: Ap
       status: account?.status ?? null,
       passwordUpdatedAt: account?.password_updated_at?.toISOString() ?? null,
       createdAt: account?.created_at?.toISOString() ?? null,
+      lease: {
+        days: policy.leaseDays,
+        renewalWindowDays: policy.renewalWindowDays,
+        validUntil: expiry?.toISOString() ?? null,
+        renewableFrom: renewableFrom?.toISOString() ?? null,
+        inRenewalWindow,
+        lastVerifiedAt: account?.last_verified_at?.toISOString() ?? null,
+        /**
+         * The notice is due once when access is first granted, and again once
+         * the renewal window opens. There is no mail in this product, so the
+         * portal is the only place a person can be told - and being told once,
+         * ninety days ago, is not being told.
+         */
+        noticeDue:
+          Boolean(account) &&
+          (!account?.lease_notice_ack_at ||
+            // Acknowledging the first notice must not silence the renewal one,
+            // and acknowledging the renewal one must not make it reappear.
+            (inRenewalWindow &&
+              renewableFrom !== null &&
+              account.lease_notice_ack_at.getTime() < renewableFrom.getTime())),
+      },
       /** Stated here so the UI does not have to invent the wording. */
       notice:
         'This password is used only by the proxy. It is separate from your organisational password and is never checked against it.',
@@ -108,13 +142,15 @@ export async function registerPortalOidcRoutes(app: FastifyInstance, context: Ap
     if (existing.length > 0) throw conflict('You already have a proxy account.');
 
     const hash = hashProxyPassword(parsed.data.password, config.proxyPasswordFormat);
+    const policy = await accessLeasePolicy(db);
     const { rows } = await db
-      .query<{ id: string }>(
+      .query<{ id: string; valid_until: Date }>(
         `insert into proxy_users
            (username, display_name, status, password_hash, password_format, password_updated_at,
-            source, oidc_issuer, oidc_subject)
-         values ($1, $2, 'ACTIVE', $3, $4, now(), 'OIDC', $5, $6)
-         returning id`,
+            source, oidc_issuer, oidc_subject, valid_until, last_verified_at)
+         values ($1, $2, 'ACTIVE', $3, $4, now(), 'OIDC', $5, $6,
+                 now() + ($7 || ' days')::interval, now())
+         returning id, valid_until`,
         [
           parsed.data.username,
           principal.username,
@@ -122,6 +158,7 @@ export async function registerPortalOidcRoutes(app: FastifyInstance, context: Ap
           config.proxyPasswordFormat,
           issuer,
           identity.subject,
+          String(policy.leaseDays),
         ],
       )
       .catch((error: unknown) => {
@@ -141,7 +178,28 @@ export async function registerPortalOidcRoutes(app: FastifyInstance, context: Ap
       payload: { selfService: true, provider: identity.providerKey },
     });
 
-    return reply.status(201).send({ username: parsed.data.username });
+    return reply.status(201).send({
+      username: parsed.data.username,
+      validUntil: rows[0]?.valid_until?.toISOString() ?? null,
+      leaseDays: policy.leaseDays,
+    });
+  });
+
+  /** Records that the person has been shown how long their access lasts. */
+  app.post('/portal/proxy-account/acknowledge', async (request) => {
+    const principal = requirePortalAuth(request);
+    const identity = oidcIdentity(principal.subject);
+    if (!identity) return { ok: true };
+
+    const issuer = await issuerOf(identity.providerKey);
+    if (!issuer) throw unauthorized('The identity provider is no longer available.');
+
+    await db.query(
+      `update proxy_users set lease_notice_ack_at = now()
+       where oidc_issuer = $1 and oidc_subject = $2`,
+      [issuer, identity.subject],
+    );
+    return { ok: true };
   });
 
   /**

@@ -52,6 +52,9 @@ interface UserRow {
   description: string | null;
   status: 'ACTIVE' | 'DISABLED';
   password_updated_at: Date | null;
+  source: string;
+  valid_until: Date | null;
+  last_verified_at: Date | null;
   created_at: Date;
   updated_at: Date;
   has_password: boolean;
@@ -68,6 +71,12 @@ function toUser(row: UserRow) {
     hasPassword: row.has_password,
     groups: row.groups ?? [],
     passwordUpdatedAt: row.password_updated_at?.toISOString() ?? null,
+    // Where the account came from and how long its access still runs. An
+    // administrator has to be able to see a lease without opening the database
+    // (ADR 0004 section 6).
+    source: row.source,
+    validUntil: row.valid_until?.toISOString() ?? null,
+    lastVerifiedAt: row.last_verified_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -76,6 +85,7 @@ function toUser(row: UserRow) {
 const USER_SELECT = `
   select u.id, u.username, u.display_name, u.description, u.status,
          u.password_updated_at, u.created_at, u.updated_at,
+         u.source, u.valid_until, u.last_verified_at,
          (u.password_hash is not null) as has_password,
          coalesce(
            (select json_agg(json_build_object('id', g.id, 'name', g.name) order by g.name)

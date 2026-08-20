@@ -121,14 +121,60 @@ control plane, and the local proxy users continue to work unchanged.
   access without an administrator creating accounts by hand.
 - Positive: the proxy path is unchanged. No new failure mode reaches Squid, and
   an identity provider outage cannot stop traffic - only new sign-ins.
-- Negative: **deprovisioning is not automatic.** Disabling a user in Keycloak
-  stops them signing in; it does not disable their proxy account, because the
-  control plane only learns about the directory when someone signs in. Until a
-  reconciliation job exists, removing proxy access stays an explicit
-  administrative act. This is the most important limitation of this decision and
-  belongs in the release notes.
+- Deprovisioning is covered by section 6 below rather than left open.
 - Negative: two passwords for one person. Mitigated by saying so in the portal,
   not by pretending otherwise.
+
+## 6. Deprovisioning: a refused claim, and a lease
+
+OIDC offers no way to ask whether a subject still exists. UserInfo and token
+introspection need a token belonging to that user; SCIM is a push protocol the
+provider must be configured for; the Keycloak admin API works but is
+vendor-specific and would require a privileged service account inside the
+control plane - a powerful new credential in a component that manages proxy
+access. None of those are acceptable as the default.
+
+Two mechanisms are used instead, and they cover different halves of the problem.
+
+**A refused claim is acted on immediately.** When someone signs in and is turned
+away because the claim is gone, that is evidence of revocation rather than
+suspicion. The linked proxy account is disabled at that moment, with an audit
+entry. This costs nothing and needs no infrastructure.
+
+**Absence of any signal is bounded by a lease.** A proxy account carries
+`valid_until`. A successful sign-in - which re-checks the claim live against the
+provider - renews it, and a sweep disables accounts whose lease has run out. A
+user deleted in the directory cannot sign in, therefore cannot renew, and loses
+access within the lease period without the control plane asking the directory
+anything.
+
+```text
+claim withdrawn, signs in     -> disabled immediately
+claim withdrawn, never signs in -> disabled when the lease expires
+user deleted                  -> disabled when the lease expires
+returns with the claim intact -> the next sign-in reactivates the account
+```
+
+The lease is a fixed term with a renewal window at its end, not a sliding
+window: signing in earlier records the verification but does not extend the
+date. Both numbers are runtime settings, defaulting to 90 days with renewal
+possible 5 days ahead. Accounts are **disabled, never deleted**, so statistics
+and the audit trail survive and a returning person is one sign-in away from
+working again.
+
+The cost is stated plainly: a person who does not visit the portal loses proxy
+access and has to sign in once to get it back. That is the price of not holding
+a privileged credential on the directory, and it is the right trade for a
+component whose whole purpose is controlling access.
+
+**This product has no mail.** The portal is therefore the only channel that
+reaches a person, which is why the notice is shown when access is granted and
+again when the renewal window opens - being told once, ninety days ago, is not
+being told. An administrator can see every lease and its date in the user list.
+
+A Keycloak admin API connector remains possible later as an opt-in accelerator
+for anyone who needs minutes rather than days, with its own credential and its
+own explicit decision.
 
 ## Not decided here
 

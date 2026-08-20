@@ -417,13 +417,35 @@ roles where finer control is needed.
 Their own statistics and access profile are visible in the portal as for any
 other proxy user.
 
-### Known limitation
+### When someone loses access
 
-**Deprovisioning is not automatic.** Disabling a user in Keycloak stops them
-signing in; it does not disable the proxy account they already have, because the
-control plane only learns about the directory when someone signs in. Removing
-proxy access remains an explicit administrative act until a reconciliation job
-exists.
+An identity provider cannot be asked whether a user still exists, so access is
+handled with two mechanisms rather than one.
+
+**A refused sign-in ends access immediately.** If someone signs in and the
+required claim is gone, that is evidence the directory took their access away.
+The linked proxy account is disabled at that moment.
+
+**Access is a lease.** Each proxy account is valid for a limited time - 90 days
+by default - and only a successful sign-in renews it, because a sign-in
+re-checks the claim against the provider. Someone deleted in Keycloak can no
+longer sign in, so their proxy access ends when the lease runs out.
+
+Both numbers are configured under `System -> Settings -> Directory access`:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Lease length | 90 days | How long access lasts after each sign-in |
+| Renewal window | 5 days | How early a sign-in extends it |
+
+The lease is a fixed term, not a sliding one: signing in earlier records the
+check but does not move the date. The portal tells the user when access was
+granted and again when the renewal window opens, and shows the expiry date
+throughout - there is no mail in this product, so the portal is the only channel
+that reaches them.
+
+Accounts are **disabled, not deleted**. Statistics and the audit trail survive,
+and someone whose access is restored is one sign-in away from working again.
 
 ---
 

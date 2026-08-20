@@ -14,6 +14,7 @@ import { registerPolicyRoutes } from './routes/policies.js';
 import { registerPortalRoutes } from './routes/portal.js';
 import { registerPortalOidcRoutes } from './routes/portalOidc.js';
 import { registerOidcRoutes } from './routes/oidc.js';
+import { expireStaleLeases } from './services/accessLease.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerTrafficRoutes } from './routes/traffic.js';
 import { registerProxyAuthRoutes } from './routes/proxyAuth.js';
@@ -60,8 +61,23 @@ export async function buildServer(db: Db, config: AppConfig): Promise<FastifyIns
     context.loginLimiter.sweep();
     context.authTestLimiter.sweep();
   }, 60_000);
+
+  // Expired access leases (ADR 0004). Every five minutes is far finer than the
+  // lease itself, and a failure here must not take the API down - it retries on
+  // the next tick.
+  const leaseSweep = setInterval(() => {
+    void expireStaleLeases(context.db)
+      .then((count) => {
+        if (count > 0) app.log.info({ count }, 'disabled proxy accounts with an expired lease');
+      })
+      .catch((error: unknown) => app.log.error({ err: error }, 'lease sweep failed'));
+  }, 5 * 60_000);
+  leaseSweep.unref();
   sweep.unref();
-  app.addHook('onClose', async () => clearInterval(sweep));
+  app.addHook('onClose', async () => {
+    clearInterval(sweep);
+    clearInterval(leaseSweep);
+  });
 
   // Every request gets a principal if it carries a valid token; authorisation
   // itself is decided per route. The two audiences are mutually exclusive by

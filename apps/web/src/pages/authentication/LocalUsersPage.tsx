@@ -40,6 +40,8 @@ interface ProxyUser {
   hasPassword: boolean;
   groups: Array<{ id: string; name: string }>;
   passwordUpdatedAt: string | null;
+  source: 'LOCAL' | 'OIDC';
+  validUntil: string | null;
   updatedAt: string;
 }
 
@@ -122,6 +124,26 @@ export function LocalUsersPage(): JSX.Element {
               ))}
             </div>
           ),
+      },
+      {
+        id: 'origin',
+        header: 'Access',
+        // A directory-backed account expires unless its owner signs in again,
+        // so the date belongs next to the account rather than in a report
+        // nobody opens (ADR 0004 section 6).
+        cell: (row) => {
+          if (row.source !== 'OIDC') return <span className="scp-hint">Local, no expiry</span>;
+          if (!row.validUntil) return <StatusBadge tone="neutral">Directory</StatusBadge>;
+          const days = Math.ceil((new Date(row.validUntil).getTime() - Date.now()) / 86_400_000);
+          return (
+            <span className="scp-row">
+              <StatusBadge tone={days <= 0 ? 'danger' : days <= 7 ? 'warning' : 'info'}>
+                {days <= 0 ? 'Expired' : `${days} day(s) left`}
+              </StatusBadge>
+              <span className="scp-hint">{formatDateTime(row.validUntil)}</span>
+            </span>
+          );
+        },
       },
       {
         id: 'status',

@@ -14,6 +14,7 @@ import {
   usernameFrom,
   verifyIdToken,
 } from '../security/oidc.js';
+import { accessLeasePolicy } from '../services/settings.js';
 import type { AppContext } from '../server.js';
 
 /**
@@ -468,21 +469,79 @@ export async function registerOidcRoutes(app: FastifyInstance, context: AppConte
     username: string,
   ): Promise<unknown> {
     if (!provider.allow_portal_login) throw unauthorized('This provider does not grant portal access.');
+
     if (!admits(claims as never, provider.portal_claim, provider.portal_value)) {
+      // A refused claim is evidence, not suspicion: this person had access and
+      // the directory has taken it away. Acting on it here is the fast half of
+      // deprovisioning - the lease below is the half that covers people who
+      // never come back at all (ADR 0004).
+      const { rows: revoked } = await db.query<{ id: string; username: string }>(
+        `update proxy_users set status = 'DISABLED', updated_at = now()
+         where oidc_issuer = $1 and oidc_subject = $2 and status = 'ACTIVE'
+         returning id, username`,
+        [provider.issuer, claims.sub],
+      );
+      const account = revoked[0];
+      if (account) {
+        await recordAudit(db, {
+          action: 'PROXY_USER_UPDATED',
+          outcome: 'SUCCESS',
+          actor: { id: null, username: 'system', sourceIp: request.ip },
+          targetType: 'proxy_user',
+          targetId: account.id,
+          targetName: account.username,
+          payload: { disabled: true, reason: 'CLAIM_WITHDRAWN', provider: provider.key },
+        });
+      }
       throw unauthorized('Your account is not permitted to use this portal.');
     }
 
     // The proxy account may not exist yet. That is the normal first visit: the
     // portal offers to create one, because only then does a password exist that
     // Squid can check.
-    const { rows } = await db.query<{ id: string; username: string; status: string }>(
-      `select id, username, status from proxy_users
+    const { rows } = await db.query<{
+      id: string;
+      username: string;
+      status: string;
+      valid_until: Date | null;
+    }>(
+      `select id, username, status, valid_until from proxy_users
        where oidc_issuer = $1 and oidc_subject = $2`,
       [provider.issuer, claims.sub],
     );
     const account = rows[0];
-    if (account && account.status !== 'ACTIVE') {
-      throw unauthorized('Your proxy account is disabled. Ask an administrator.');
+
+    if (account) {
+      const policy = await accessLeasePolicy(db);
+      const expiry = account.valid_until?.getTime() ?? null;
+      const renewableFrom = expiry === null ? 0 : expiry - policy.renewalWindowDays * 86_400_000;
+      // The claim was just verified against the provider, so this sign-in is
+      // the renewal. Outside the window it only records the verification: the
+      // lease is a fixed term with a window at its end, not a sliding one.
+      const renews = expiry === null || Date.now() >= renewableFrom;
+
+      await db.query(
+        `update proxy_users set
+           last_verified_at = now(),
+           valid_until = case when $2 then now() + ($3 || ' days')::interval else valid_until end,
+           -- An expired account comes back to life when the directory still
+           -- vouches for the person. Deprovisioning is meant to end access, not
+           -- to punish someone who returns.
+           status = case when $2 and status = 'DISABLED' then 'ACTIVE' else status end,
+           updated_at = now()
+         where id = $1`,
+        [account.id, renews, String(policy.leaseDays)],
+      );
+      if (renews && account.status !== 'ACTIVE') {
+        await recordAudit(db, {
+          action: 'PROXY_USER_UPDATED',
+          actor: { id: null, username: 'system', sourceIp: request.ip },
+          targetType: 'proxy_user',
+          targetId: account.id,
+          targetName: account.username,
+          payload: { reactivated: true, reason: 'LEASE_RENEWED', provider: provider.key },
+        });
+      }
     }
 
     const { token, expiresAt } = issueToken<PortalClaims>(
