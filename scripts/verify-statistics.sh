@@ -138,6 +138,33 @@ contains "$S" '"topDestinations"' "destinations are reported"
 contains "$S" '"errorReasons"' "error reasons are available on the detail path"
 
 echo
+echo "== resolution follows the range, not the storage =="
+H1=$(get "/statistics?from=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)&to=$(date -u -d '1 hour' +%Y-%m-%dT%H:%M:%SZ)")
+contains "$H1" '"granularity":"every minute"' "an hour is charted per minute"
+contains "$(get "/statistics?from=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)&to=$(date -u -d '1 hour' +%Y-%m-%dT%H:%M:%SZ)")"   '"granularity":"every 15 minutes"' "a day is charted per quarter hour"
+contains "$(get "/statistics?from=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)&to=$(date -u -d '1 hour' +%Y-%m-%dT%H:%M:%SZ)")"   '"granularity":"hourly"' "a week is charted hourly"
+
+# The hourly counters cannot go below the hour they are named after, so a range
+# they answer must never claim a finer resolution than they have.
+contains "$(get "/statistics?from=$(date -u -d '300 days ago' +%Y-%m-%dT%H:%M:%SZ)&to=$(date -u -d '1 hour' +%Y-%m-%dT%H:%M:%SZ)")"   '"granularity":"weekly"' "a long range falls back to the counters' own resolution"
+
+# Proof rather than a label: traffic in two different minutes has to produce two
+# points, which an hour-wide bucket could not show.
+echo "  ..  waiting a minute so a second bucket exists"
+sleep 65
+$COMPOSE exec -T client sh -c "
+  for i in 1 2 3; do curl -s -o /dev/null -x http://$NODE:3128 -U stats-anna:stats-anna-password http://origin/; done
+" 2>/dev/null
+DEADLINE=$(( $(date +%s) + 90 ))
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  BUCKETS=$(get "/statistics?from=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)&to=$(date -u -d '1 hour' +%Y-%m-%dT%H:%M:%SZ)" |
+    grep -o '"at":"[^"]*"' | sort -u | wc -l | tr -d ' ')
+  [ "$BUCKETS" -ge 2 ] 2>/dev/null && break
+  sleep 5
+done
+atleast "$BUCKETS" 2 "requests a minute apart land in separate points"
+
+echo
 echo "== filters =="
 contains "$(get "/statistics?username=stats-anna")" '"source"' "filtering by user is accepted"
 U=$(get "/statistics?username=stats-anna&from=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)&to=$(date -u -d '1 hour' +%Y-%m-%dT%H:%M:%SZ)")

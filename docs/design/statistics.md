@@ -127,6 +127,36 @@ log format change rather than agent work - see decision 4. Concurrent sessions
 per user are not obtainable at all: HTTP proxying has no session, and Squid's
 connection counters are per process, not per identity.
 
+## How often a data point exists
+
+Three different cadences, and conflating them is easy:
+
+| | |
+| --- | --- |
+| A request is recorded | **individually**, with its own millisecond timestamp |
+| It reaches the control plane | on the agent's next poll, **~30 s** by default |
+| The hourly counters advance | **hourly** - that is what they are |
+
+The chart's resolution follows the **range**, not the storage, and only the raw
+events can go below an hour:
+
+| Range | Bucket |
+| --- | --- |
+| up to 2 hours | every minute |
+| up to 12 hours | every 5 minutes |
+| up to 48 hours | every 15 minutes |
+| up to 8 days | hourly |
+| up to 120 days | daily |
+| beyond | weekly |
+
+Below an hour this works only on the raw events; the counters cannot go finer
+than the hour they are named after, so a range they answer is never offered at a
+finer resolution than it has. The chosen bucket is stated next to the chart.
+
+An hour-only rule - which is what this had first - collapses a one hour window
+into a single point. That answers "how much" and destroys "when", and "when" is
+the entire reason for looking at a short range.
+
 ## The honesty problem with the time range
 
 The available KPIs depend on the range chosen. Pick 90 days and half the page

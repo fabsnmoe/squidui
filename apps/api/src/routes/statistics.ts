@@ -58,12 +58,47 @@ function windowOf(query: Query): Window {
   return { from, to };
 }
 
-/** Hour, day or week, so a chart never gets more points than it can draw. */
-function granularityOf(window: Window): { unit: 'hour' | 'day' | 'week'; label: string } {
+interface Granularity {
+  /** Bucket width in seconds. */
+  seconds: number;
+  /** A `date_trunc` unit, when the width happens to be one. */
+  unit: 'hour' | 'day' | 'week' | null;
+  label: string;
+}
+
+/**
+ * How wide a bucket is, chosen so a chart gets enough points to show shape and
+ * few enough to draw.
+ *
+ * Below an hour this only works on the raw events, which carry each request's
+ * own timestamp; the hourly counters cannot go finer than the hour they are
+ * named after. Collapsing a one hour window into a single point - which is what
+ * an hour-only rule does - answers "how much" and destroys "when", and "when"
+ * is the entire reason for looking at a short range.
+ */
+function granularityOf(window: Window, source: 'events' | 'rollups'): Granularity {
   const hours = (window.to.getTime() - window.from.getTime()) / 3600_000;
-  if (hours <= 72) return { unit: 'hour', label: 'hourly' };
-  if (hours <= 24 * 120) return { unit: 'day', label: 'daily' };
-  return { unit: 'week', label: 'weekly' };
+
+  if (source === 'events') {
+    if (hours <= 2) return { seconds: 60, unit: null, label: 'every minute' };
+    if (hours <= 12) return { seconds: 300, unit: null, label: 'every 5 minutes' };
+    if (hours <= 48) return { seconds: 900, unit: null, label: 'every 15 minutes' };
+  }
+
+  if (hours <= 24 * 8) return { seconds: 3600, unit: 'hour', label: 'hourly' };
+  if (hours <= 24 * 120) return { seconds: 86_400, unit: 'day', label: 'daily' };
+  return { seconds: 604_800, unit: 'week', label: 'weekly' };
+}
+
+/**
+ * The bucket expression. `date_trunc` handles calendar units; anything shorter
+ * is floored onto a grid of that width, which keeps buckets aligned to the
+ * clock rather than to whenever the range happens to start.
+ */
+function bucketExpression(column: string, grain: Granularity): string {
+  return grain.unit
+    ? `date_trunc('${grain.unit}', ${column})`
+    : `to_timestamp(floor(extract(epoch from ${column}) / ${grain.seconds}) * ${grain.seconds})`;
 }
 
 export async function registerStatisticsRoutes(app: FastifyInstance, context: AppContext): Promise<void> {
@@ -75,7 +110,6 @@ export async function registerStatisticsRoutes(app: FastifyInstance, context: Ap
     if (!parsed.success) throw badRequest('Invalid statistics query.', parsed.error.issues);
     const query = parsed.data;
     const window = windowOf(query);
-    const grain = granularityOf(window);
 
     const statisticsRetention = await getSetting(
       db,
@@ -92,6 +126,9 @@ export async function registerStatisticsRoutes(app: FastifyInstance, context: Ap
     const detailAvailable = window.from >= rawHorizon;
     const source: 'events' | 'rollups' = wantsDetail || detailAvailable ? 'events' : 'rollups';
     const truncated = wantsDetail && !detailAvailable;
+
+    // Granularity depends on the source: the counters cannot go below an hour.
+    const grain = granularityOf(window, source);
 
     const summary =
       source === 'events'
@@ -124,7 +161,7 @@ async function fromRollups(
   db: AppContext['db'],
   window: Window,
   query: Query,
-  grain: { unit: string },
+  grain: Granularity,
 ): Promise<Record<string, unknown>> {
   const params: unknown[] = [window.from.toISOString(), window.to.toISOString()];
   const conditions = ['bucket >= $1', 'bucket < $2'];
@@ -159,7 +196,7 @@ async function fromRollups(
   );
 
   const { rows: series } = await db.query(
-    `select date_trunc('${grain.unit}', bucket) as at,
+    `select ${bucketExpression('bucket', grain)} as at,
             sum(requests) filter (where decision = 'ALLOWED')::text as allowed,
             sum(requests) filter (where decision = 'DENIED')::text as denied,
             sum(requests) filter (where decision = 'AUTH_REQUIRED')::text as challenged,
@@ -241,7 +278,7 @@ async function fromEvents(
   db: AppContext['db'],
   window: Window,
   query: Query,
-  grain: { unit: string },
+  grain: Granularity,
   clampFrom: Date | null,
 ): Promise<Record<string, unknown>> {
   const from = clampFrom && clampFrom > window.from ? clampFrom : window.from;
@@ -282,7 +319,7 @@ async function fromEvents(
   );
 
   const { rows: series } = await db.query(
-    `select date_trunc('${grain.unit}', occurred_at) as at,
+    `select ${bucketExpression('occurred_at', grain)} as at,
             count(*) filter (where decision = 'ALLOWED')::text as allowed,
             count(*) filter (where decision = 'DENIED')::text as denied,
             count(*) filter (where decision = 'AUTH_REQUIRED')::text as challenged,
