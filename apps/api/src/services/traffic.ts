@@ -28,9 +28,25 @@ export interface IngestResult {
 let lastPruneAt = 0;
 const PRUNE_INTERVAL_MS = 15 * 60_000;
 
+/**
+ * Counters are collected five minutes at a time, then compacted to the hour
+ * once they are old enough (docs/design/statistics.md).
+ *
+ * Five minutes is twelve times the rows of an hour, which is affordable for a
+ * recent window and not for a year - especially for the destination and client
+ * cubes, which are the widest. Collecting fine and compacting later keeps the
+ * detail where it gets looked at without paying for it forever.
+ *
+ * Not configurable on purpose: a changing ingest width would leave history whose
+ * resolution depends on when it happened to be written, which is far harder to
+ * explain than one width plus a compaction age.
+ */
+export const FINE_BUCKET_MINUTES = 5;
+
 function bucketOf(occurredAt: string): string {
   const date = new Date(occurredAt);
-  date.setUTCMinutes(0, 0, 0);
+  const minutes = Math.floor(date.getUTCMinutes() / FINE_BUCKET_MINUTES) * FINE_BUCKET_MINUTES;
+  date.setUTCMinutes(minutes, 0, 0);
   return date.toISOString();
 }
 

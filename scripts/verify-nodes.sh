@@ -121,6 +121,15 @@ echo "== preparing =="
 $COMPOSE up -d origin client >/dev/null 2>&1 && ok "origin and client running" || bad "origin and client running"
 [ -n "$FRONTEND_NET" ] && [ -n "$PROXY_NET" ] && ok "networks resolved" || bad "networks resolved"
 
+# This suite asserts fleet-wide counters - "two enrolled nodes", "no drift" - so
+# a node left behind by another suite makes it fail for a reason that has
+# nothing to do with what it tests. That has now happened twice in this
+# repository; the sibling scripts all reset first, and so does this one.
+for id in $(get /nodes | grep -o '"id":"[0-9a-f-]\{36\}"' | sed 's/"id":"//;s/"//'); do
+  curl -s -o /dev/null -X DELETE "$BASE/nodes/$id" -H "$AUTH"
+done
+ok "fixture reset"
+
 # A policy every enrolled node can serve without credentials.
 for id in $(get /access-rules | grep -o '"id":"[^"]*"' | sed 's/"id":"//;s/"//'); do
   curl -s -o /dev/null -X DELETE "$BASE/access-rules/$id" -H "$AUTH"

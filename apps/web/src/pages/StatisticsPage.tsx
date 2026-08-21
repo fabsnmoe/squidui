@@ -38,6 +38,8 @@ interface Row {
 interface StatisticsResponse {
   window: { from: string; to: string };
   granularity: string;
+  granularitySeconds: number;
+  requestedInterval: string;
   source: 'events' | 'rollups';
   coverage: {
     rawRetentionDays: number;
@@ -46,6 +48,9 @@ interface StatisticsResponse {
     detailFiltersAvailable: boolean;
     truncatedToRawRetention: boolean;
     appliedDetailFilter: string | null;
+    fineWindowDays: number;
+    fineBucketMinutes: number;
+    coarsenedBefore: string | null;
   };
   totals: Record<string, string>;
   series: Array<Record<string, string>>;
@@ -110,6 +115,7 @@ export function StatisticsPage(): JSX.Element {
   const [destination, setDestination] = useState('');
   const [decision, setDecision] = useState('');
   const [method, setMethod] = useState('');
+  const [bucketWidth, setBucketWidth] = useState('auto');
 
   const nodes = useQuery<{ items: Array<{ id: string; name: string }> }>((signal) => api('/nodes', { signal }));
   const users = useQuery<{ items: Array<{ id: string; username: string }> }>((signal) =>
@@ -133,8 +139,9 @@ export function StatisticsPage(): JSX.Element {
     if (destination) params.set('destination', destination);
     if (decision) params.set('decision', decision);
     if (method) params.set('method', method);
+    if (bucketWidth !== 'auto') params.set('interval', bucketWidth);
     return params.toString();
-  }, [range, nodeId, username, clientIp, destination, decision, method]);
+  }, [range, nodeId, username, clientIp, destination, decision, method, bucketWidth]);
 
   const stats = useQuery<StatisticsResponse>(
     (signal) => api(`/statistics?${search}`, { signal }),
@@ -200,6 +207,21 @@ export function StatisticsPage(): JSX.Element {
             onChange={(event) => setDecision(event.target.value)}
           />
           <Select
+            label="Aggregation"
+            value={bucketWidth}
+            hint="Points are collected every 5 minutes and summed into whatever you pick."
+            options={[
+              { value: 'auto', label: 'Automatic — suited to the period' },
+              { value: '5m', label: 'Every 5 minutes' },
+              { value: '15m', label: 'Every 15 minutes' },
+              { value: '1h', label: 'Hourly' },
+              { value: '6h', label: 'Every 6 hours' },
+              { value: '1d', label: 'Daily' },
+              { value: '7d', label: 'Weekly' },
+            ]}
+            onChange={(event) => setBucketWidth(event.target.value)}
+          />
+          <Select
             label="Period"
             value={preset}
             options={PRESETS.map((entry) => ({ value: entry.value, label: entry.label }))}
@@ -258,6 +280,16 @@ export function StatisticsPage(): JSX.Element {
               : 'Counted from the hourly statistics'
           }
         >
+          {data.coverage.coarsenedBefore ? (
+            <>
+              <strong>
+                Before {new Date(data.coverage.coarsenedBefore).toLocaleDateString()} these counters exist only
+                as whole hours.
+              </strong>{' '}
+              Five minute detail is kept for {data.coverage.fineWindowDays} days and folded into hourly buckets
+              after that, so points from before then cannot be finer however they are grouped.{' '}
+            </>
+          ) : null}
           {data.source === 'events' ? (
             <>
               Every filter applies and the detail is complete, for as far back as individual requests are kept —

@@ -129,33 +129,43 @@ connection counters are per process, not per identity.
 
 ## How often a data point exists
 
-Three different cadences, and conflating them is easy:
+Three cadences, and conflating them is easy:
 
 | | |
 | --- | --- |
 | A request is recorded | **individually**, with its own millisecond timestamp |
 | It reaches the control plane | on the agent's next poll, **~30 s** by default |
-| The hourly counters advance | **hourly** - that is what they are |
+| Counters are written | **every five minutes** |
 
-The chart's resolution follows the **range**, not the storage, and only the raw
-events can go below an hour:
+### Collected fine, compacted later
 
-| Range | Bucket |
-| --- | --- |
-| up to 2 hours | every minute |
-| up to 12 hours | every 5 minutes |
-| up to 48 hours | every 15 minutes |
-| up to 8 days | hourly |
-| up to 120 days | daily |
-| beyond | weekly |
+Five minutes is twelve times the rows of an hour. That is affordable for a
+recent window and not for a year - especially for the destination and client
+cubes, which are the widest. So counters are collected at five minutes and, once
+they are older than a configurable window (14 days by default), folded into the
+hour they fall in.
 
-Below an hour this works only on the raw events; the counters cannot go finer
-than the hour they are named after, so a range they answer is never offered at a
-finer resolution than it has. The chosen bucket is stated next to the chart.
+The fold is a sum. Every counter the page reads survives it exactly; the only
+thing lost is the resolution, which is the point of doing it. Both the fine
+window and the overall retention are settings under `System -> Settings`.
 
-An hour-only rule - which is what this had first - collapses a one hour window
-into a single point. That answers "how much" and destroys "when", and "when" is
-the entire reason for looking at a short range.
+```text
+now ─────────── 14 days ──────────── 365 days ─────>
+   five minute buckets   hourly buckets      deleted
+```
+
+### The reader picks the aggregation
+
+The page offers **5 minutes, 15 minutes, hourly, 6 hours, daily, weekly** and an
+automatic setting that suits the range. Whatever is picked is summed from the
+stored buckets, so the total is the same at every width - a property the
+verification asserts rather than assumes.
+
+A request finer than the store can produce is clamped rather than faked: the
+counters cannot answer below five minutes, the raw events not below a request.
+And when a range reaches back past the fine window, the page says that those
+points exist only as whole hours - grouping them by five minutes cannot invent
+detail that was folded away.
 
 ## The honesty problem with the time range
 

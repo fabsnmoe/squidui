@@ -2,8 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { badRequest, requirePermission } from '../http/context.js';
 import {
+  DEFAULT_STATISTICS_FINE_DAYS,
   DEFAULT_STATISTICS_RETENTION_DAYS,
   getSetting,
+  SETTING_STATISTICS_FINE_DAYS,
   SETTING_STATISTICS_RETENTION_DAYS,
 } from '../services/settings.js';
 import type { AppContext } from '../server.js';
@@ -31,6 +33,8 @@ const querySchema = z.object({
   destination: z.string().max(255).optional(),
   decision: z.enum(['ALLOWED', 'DENIED', 'AUTH_REQUIRED', 'ERROR']).optional(),
   method: z.string().max(16).optional(),
+  /** Bucket width. Omitted means "pick one that suits the range". */
+  interval: z.enum(['auto', '5m', '15m', '1h', '6h', '1d', '7d']).optional(),
 });
 
 type Query = z.infer<typeof querySchema>;
@@ -76,18 +80,28 @@ interface Granularity {
  * an hour-only rule does - answers "how much" and destroys "when", and "when"
  * is the entire reason for looking at a short range.
  */
+const INTERVALS: Record<string, Granularity> = {
+  '5m': { seconds: 300, unit: null, label: 'every 5 minutes' },
+  '15m': { seconds: 900, unit: null, label: 'every 15 minutes' },
+  '1h': { seconds: 3600, unit: 'hour', label: 'hourly' },
+  '6h': { seconds: 21_600, unit: null, label: 'every 6 hours' },
+  '1d': { seconds: 86_400, unit: 'day', label: 'daily' },
+  '7d': { seconds: 604_800, unit: 'week', label: 'weekly' },
+};
+
+/** The finest bucket each store can produce. */
+const FINEST = { events: 60, rollups: 300 };
+
 function granularityOf(window: Window, source: 'events' | 'rollups'): Granularity {
   const hours = (window.to.getTime() - window.from.getTime()) / 3600_000;
 
-  if (source === 'events') {
-    if (hours <= 2) return { seconds: 60, unit: null, label: 'every minute' };
-    if (hours <= 12) return { seconds: 300, unit: null, label: 'every 5 minutes' };
-    if (hours <= 48) return { seconds: 900, unit: null, label: 'every 15 minutes' };
-  }
-
-  if (hours <= 24 * 8) return { seconds: 3600, unit: 'hour', label: 'hourly' };
-  if (hours <= 24 * 120) return { seconds: 86_400, unit: 'day', label: 'daily' };
-  return { seconds: 604_800, unit: 'week', label: 'weekly' };
+  if (source === 'events' && hours <= 2) return { seconds: 60, unit: null, label: 'every minute' };
+  if (hours <= 12) return INTERVALS['5m'] as Granularity;
+  if (hours <= 48) return INTERVALS['15m'] as Granularity;
+  if (hours <= 24 * 8) return INTERVALS['1h'] as Granularity;
+  if (hours <= 24 * 60) return INTERVALS['6h'] as Granularity;
+  if (hours <= 24 * 120) return INTERVALS['1d'] as Granularity;
+  return INTERVALS['7d'] as Granularity;
 }
 
 /**
@@ -127,8 +141,27 @@ export async function registerStatisticsRoutes(app: FastifyInstance, context: Ap
     const source: 'events' | 'rollups' = wantsDetail || detailAvailable ? 'events' : 'rollups';
     const truncated = wantsDetail && !detailAvailable;
 
-    // Granularity depends on the source: the counters cannot go below an hour.
-    const grain = granularityOf(window, source);
+    // Chosen by the caller when they asked, otherwise picked from the range.
+    // Either way it is clamped to what the store can actually produce: the
+    // counters are collected five minutes at a time and the events per request.
+    const requested = query.interval && query.interval !== 'auto' ? INTERVALS[query.interval] : null;
+    const automatic = granularityOf(window, source);
+    const floor = FINEST[source];
+    const grain: Granularity =
+      requested && requested.seconds >= floor
+        ? requested
+        : requested
+          ? { seconds: floor, unit: null, label: `every ${floor / 60} minutes` }
+          : automatic;
+
+    // Counters older than the fine window have already been folded into hours,
+    // so a finer bucket over that stretch cannot produce finer points however it
+    // is grouped. Saying so beats letting someone read hour-aligned points as
+    // five minute ones.
+    const fineWindowDays = await getSetting(db, SETTING_STATISTICS_FINE_DAYS, DEFAULT_STATISTICS_FINE_DAYS);
+    const fineHorizon = new Date(Date.now() - fineWindowDays * 86_400_000);
+    const coarsened =
+      source === 'rollups' && fineWindowDays > 0 && grain.seconds < 3600 && window.from < fineHorizon;
 
     const summary =
       source === 'events'
@@ -138,6 +171,8 @@ export async function registerStatisticsRoutes(app: FastifyInstance, context: Ap
     return {
       window: { from: window.from.toISOString(), to: window.to.toISOString() },
       granularity: grain.label,
+      granularitySeconds: grain.seconds,
+      requestedInterval: query.interval ?? 'auto',
       source,
       /** What the reader has to know to interpret the numbers above. */
       coverage: {
@@ -147,6 +182,10 @@ export async function registerStatisticsRoutes(app: FastifyInstance, context: Ap
         detailFiltersAvailable: detailAvailable,
         truncatedToRawRetention: truncated,
         appliedDetailFilter: usedDetailFilter ?? null,
+        fineWindowDays,
+        fineBucketMinutes: 5,
+        /** Before this instant the counters exist only as whole hours. */
+        coarsenedBefore: coarsened ? fineHorizon.toISOString() : null,
       },
       ...summary,
     };

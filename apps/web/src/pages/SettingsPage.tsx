@@ -29,10 +29,17 @@ export function SettingsPage(): JSX.Element {
   const settings = useQuery<{
     traffic: { logUrls: boolean; retentionDays: number; retentionConfigurableAt: string };
     accessLease: { leaseDays: number; renewalWindowDays: number };
-    statistics: { retentionDays: number; rawRetentionDays: number; rawRetentionConfigurableAt: string };
+    statistics: {
+      retentionDays: number;
+      fineWindowDays: number;
+      fineBucketMinutes: number;
+      rawRetentionDays: number;
+      rawRetentionConfigurableAt: string;
+    };
   }>((signal) => api('/settings', { signal }));
   const [lease, setLease] = useState<{ leaseDays: string; renewalWindowDays: string } | null>(null);
   const [statsDays, setStatsDays] = useState<string | null>(null);
+  const [fineDays, setFineDays] = useState<string | null>(null);
   const [statsBusy, setStatsBusy] = useState(false);
   const [leaseBusy, setLeaseBusy] = useState(false);
 
@@ -277,17 +284,30 @@ export function SettingsPage(): JSX.Element {
             hint="Zero keeps them for as long as the installation exists. Lowering this deletes older statistics at the next ingest and cannot be undone."
             onChange={(event) => setStatsDays(event.target.value)}
           />
+          <Input
+            label="Keep 5-minute detail for, in days"
+            type="number"
+            value={fineDays ?? String(settings.data?.statistics.fineWindowDays ?? 14)}
+            hint="Counters are always collected every 5 minutes. After this many days they are folded into hourly buckets — the totals survive, the resolution does not. Zero keeps every bucket at 5 minutes."
+            onChange={(event) => setFineDays(event.target.value)}
+          />
           <Button
             variant="primary"
-            disabled={statsDays === null}
+            disabled={statsDays === null && fineDays === null}
             loading={statsBusy}
             onClick={() => {
-              if (statsDays === null) return;
               setStatsBusy(true);
-              void api('/settings', { method: 'PATCH', body: { statisticsRetentionDays: Number(statsDays) } })
+              void api('/settings', {
+                method: 'PATCH',
+                body: {
+                  ...(statsDays === null ? {} : { statisticsRetentionDays: Number(statsDays) }),
+                  ...(fineDays === null ? {} : { statisticsFineWindowDays: Number(fineDays) }),
+                },
+              })
                 .then(() => {
-                  toast.success('Statistics retention saved', 'It applies at the next ingest.');
+                  toast.success('Statistics settings saved', 'They apply at the next ingest.');
                   setStatsDays(null);
+                  setFineDays(null);
                   settings.reload();
                 })
                 .catch((error: unknown) =>

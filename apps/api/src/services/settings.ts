@@ -71,6 +71,14 @@ export const SETTING_TRAFFIC_LOG_URLS = 'traffic.logUrls';
 export const SETTING_STATISTICS_RETENTION_DAYS = 'statistics.retentionDays';
 export const DEFAULT_STATISTICS_RETENTION_DAYS = 365;
 
+/**
+ * How long counters keep their five minute resolution before being folded into
+ * hourly ones. Zero keeps every bucket at five minutes, which is a legitimate
+ * choice for a small installation with disk to spare.
+ */
+export const SETTING_STATISTICS_FINE_DAYS = 'statistics.fineWindowDays';
+export const DEFAULT_STATISTICS_FINE_DAYS = 14;
+
 export const SETTING_OIDC_LEASE_DAYS = 'oidc.leaseDays';
 export const SETTING_OIDC_RENEWAL_WINDOW_DAYS = 'oidc.renewalWindowDays';
 

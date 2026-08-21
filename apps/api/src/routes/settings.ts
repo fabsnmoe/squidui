@@ -6,8 +6,10 @@ import {
   accessLeasePolicy,
   getSetting,
   setSetting,
+  DEFAULT_STATISTICS_FINE_DAYS,
   DEFAULT_STATISTICS_RETENTION_DAYS,
   SETTING_OIDC_LEASE_DAYS,
+  SETTING_STATISTICS_FINE_DAYS,
   SETTING_STATISTICS_RETENTION_DAYS,
   SETTING_OIDC_RENEWAL_WINDOW_DAYS,
   SETTING_TRAFFIC_LOG_URLS,
@@ -23,6 +25,7 @@ const patchSchema = z.object({
   leaseDays: z.number().int().min(1).max(365).optional(),
   // Zero is "keep indefinitely", which is why the floor is not one.
   statisticsRetentionDays: z.number().int().min(0).max(3650).optional(),
+  statisticsFineWindowDays: z.number().int().min(0).max(365).optional(),
   renewalWindowDays: z.number().int().min(0).max(365).optional(),
 });
 
@@ -46,6 +49,8 @@ export async function registerSettingsRoutes(app: FastifyInstance, context: AppC
       accessLease: await accessLeasePolicy(db),
       statistics: {
         retentionDays: await getSetting(db, SETTING_STATISTICS_RETENTION_DAYS, DEFAULT_STATISTICS_RETENTION_DAYS),
+        fineWindowDays: await getSetting(db, SETTING_STATISTICS_FINE_DAYS, DEFAULT_STATISTICS_FINE_DAYS),
+        fineBucketMinutes: 5,
         // Shown together so nobody has to guess which window governs which
         // number on the statistics page.
         rawRetentionDays: config.traffic.retentionDays,
@@ -96,6 +101,21 @@ export async function registerSettingsRoutes(app: FastifyInstance, context: AppC
         targetId: SETTING_STATISTICS_RETENTION_DAYS,
         targetName: 'Statistics retention',
         payload: { from: previous, to: parsed.data.statisticsRetentionDays },
+      });
+    }
+
+    if (parsed.data.statisticsFineWindowDays !== undefined) {
+      const previous = await getSetting(db, SETTING_STATISTICS_FINE_DAYS, DEFAULT_STATISTICS_FINE_DAYS);
+      await setSetting(db, SETTING_STATISTICS_FINE_DAYS, parsed.data.statisticsFineWindowDays, principal.username);
+      // Shortening this folds detail away at the next compaction; the counters
+      // survive, the resolution does not.
+      await recordAudit(db, {
+        action: 'SETTINGS_UPDATED',
+        actor: actorOf(request),
+        targetType: 'setting',
+        targetId: SETTING_STATISTICS_FINE_DAYS,
+        targetName: 'Statistics: fine resolution window',
+        payload: { from: previous, to: parsed.data.statisticsFineWindowDays },
       });
     }
 

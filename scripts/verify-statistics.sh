@@ -165,6 +165,37 @@ done
 atleast "$BUCKETS" 2 "requests a minute apart land in separate points"
 
 echo
+echo "== the reader picks the aggregation =="
+W="from=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)&to=$(date -u -d '1 hour' +%Y-%m-%dT%H:%M:%SZ)"
+contains "$(get "/statistics?$W&interval=5m")" '"granularity":"every 5 minutes"' "five minutes can be asked for"
+contains "$(get "/statistics?$W&interval=1h")" '"granularity":"hourly"' "so can hourly"
+contains "$(get "/statistics?$W&interval=6h")" '"granularity":"every 6 hours"' "so can six hours"
+contains "$(get "/statistics?$W&interval=7d")" '"granularity":"weekly"' "so can a week"
+
+# Summing the same traffic at different widths has to give the same total; if it
+# does not, the aggregation is losing or double counting requests.
+FINE=$(field "$(get "/statistics?$W&interval=5m")" requests)
+COARSE=$(field "$(get "/statistics?$W&interval=1d")" requests)
+expect "$FINE" "$COARSE" "the total is the same however it is bucketed"
+
+# The counters are written every five minutes, so they cannot answer a finer
+# question and must not pretend to.
+LONG="from=$(date -u -d '300 days ago' +%Y-%m-%dT%H:%M:%SZ)&to=$(date -u -d '1 hour' +%Y-%m-%dT%H:%M:%SZ)"
+contains "$(get "/statistics?$LONG&interval=5m")" '"granularitySeconds":300'   "the counters offer five minutes, which is what they store"
+
+echo
+echo "== counters are collected five minutes at a time =="
+# Deliberately not "two buckets": traffic a minute apart belongs in the same
+# five minute counter, and asserting otherwise would be asserting a bug.
+#
+# The exact claim instead: every counter bucket is the five minute floor of some
+# real request, and every such floor has a counter. That pins the width without
+# depending on which minute the test happened to run in.
+expect "$(psql_ "select count(*) from ((select distinct bucket from traffic_rollups) except (select distinct to_timestamp(floor(extract(epoch from occurred_at)/300)*300) from traffic_events)) x")" "0"   "every counter bucket matches a five minute floor of real traffic"
+expect "$(psql_ "select count(*) from ((select distinct to_timestamp(floor(extract(epoch from occurred_at)/300)*300) from traffic_events) except (select distinct bucket from traffic_rollups)) x")" "0"   "and no five minute window of traffic is missing a counter"
+expect "$(psql_ "select count(*) from traffic_rollups where extract(epoch from bucket)::bigint % 300 <> 0")" "0"   "every bucket sits on a five minute boundary"
+
+echo
 echo "== filters =="
 contains "$(get "/statistics?username=stats-anna")" '"source"' "filtering by user is accepted"
 U=$(get "/statistics?username=stats-anna&from=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)&to=$(date -u -d '1 hour' +%Y-%m-%dT%H:%M:%SZ)")
@@ -195,6 +226,37 @@ patch /settings '{"statisticsRetentionDays":0}' >/dev/null
 contains "$(get /settings)" '"retentionDays":0' "an administrator can set it to keep indefinitely"
 contains "$(get '/audit-events?limit=10')" 'SETTINGS_UPDATED' "the change is audited"
 patch /settings '{"statisticsRetentionDays":365}' >/dev/null
+
+echo
+echo "== compaction folds old detail into hours =="
+# Age the buckets so the compactor treats them as old, then run it by restarting.
+psql_ "update traffic_rollups set bucket = bucket - interval '30 days'" >/dev/null
+psql_ "update traffic_destination_rollups set bucket = bucket - interval '30 days'" >/dev/null
+psql_ "update traffic_client_rollups set bucket = bucket - interval '30 days'" >/dev/null
+BEFORE_ROWS=$(psql_ "select count(*) from traffic_rollups")
+BEFORE_REQ=$(psql_ "select coalesce(sum(requests),0) from traffic_rollups")
+$COMPOSE restart api >/dev/null 2>&1
+for _ in $(seq 1 40); do
+  [ "$(curl -s -o /dev/null -w '%{http_code}' "${SCP_BASE_URL:-http://localhost:8080}/api/health/ready")" = "200" ] && break
+  sleep 2
+done
+DEADLINE=$(( $(date +%s) + 120 ))
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  [ "$(psql_ "select count(*) from traffic_rollups where extract(epoch from bucket)::bigint % 3600 <> 0")" = "0" ] 2>/dev/null && break
+  sleep 5
+done
+expect "$(psql_ "select count(*) from traffic_rollups where extract(epoch from bucket)::bigint % 3600 <> 0")" "0"   "old buckets are folded onto whole hours"
+# The point of the fold: fewer rows, identical totals.
+expect "$(psql_ "select coalesce(sum(requests),0) from traffic_rollups")" "$BEFORE_REQ"   "folding loses no requests"
+if [ "$(psql_ "select count(*) from traffic_rollups")" -le "$BEFORE_ROWS" ] 2>/dev/null; then
+  ok "and it does not grow the table"
+else
+  bad "and it does not grow the table"
+fi
+
+TOKEN=$(curl -s -X POST "$BASE/session" -H 'Content-Type: application/json'   -d "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" |
+  sed -n 's/.*"token":"\([^"]*\)".*//p')
+AUTH="Authorization: Bearer $TOKEN"
 
 echo
 echo "== cleanup =="

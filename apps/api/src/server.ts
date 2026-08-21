@@ -15,6 +15,12 @@ import { registerPortalRoutes } from './routes/portal.js';
 import { registerPortalOidcRoutes } from './routes/portalOidc.js';
 import { registerOidcRoutes } from './routes/oidc.js';
 import { expireStaleLeases } from './services/accessLease.js';
+import { compactStatistics } from './services/statisticsCompaction.js';
+import {
+  DEFAULT_STATISTICS_FINE_DAYS,
+  getSetting,
+  SETTING_STATISTICS_FINE_DAYS,
+} from './services/settings.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerTrafficRoutes } from './routes/traffic.js';
 import { registerStatisticsRoutes } from './routes/statistics.js';
@@ -79,10 +85,28 @@ export async function buildServer(db: Db, config: AppConfig): Promise<FastifyIns
   runLeaseSweep();
   const leaseSweep = setInterval(runLeaseSweep, 5 * 60_000);
   leaseSweep.unref();
+
+  // Folding five minute counters into hourly ones. Hourly is often enough: the
+  // buckets being folded are already older than the fine window, so nothing is
+  // waiting on this.
+  const runCompaction = (): void => {
+    void getSetting(context.db, SETTING_STATISTICS_FINE_DAYS, DEFAULT_STATISTICS_FINE_DAYS)
+      .then((days) => compactStatistics(context.db, days))
+      .then((result) => {
+        if (result.removed > 0) {
+          app.log.info(result, 'compacted five minute statistics into hourly buckets');
+        }
+      })
+      .catch((error: unknown) => app.log.error({ err: error }, 'statistics compaction failed'));
+  };
+  runCompaction();
+  const compaction = setInterval(runCompaction, 60 * 60_000);
+  compaction.unref();
   sweep.unref();
   app.addHook('onClose', async () => {
     clearInterval(sweep);
     clearInterval(leaseSweep);
+    clearInterval(compaction);
   });
 
   // Every request gets a principal if it carries a valid token; authorisation
