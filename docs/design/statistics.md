@@ -90,6 +90,39 @@ it separates real usage from background scanning, which otherwise inflates every
 other number on the page. This is exactly the noise that was being mislabelled
 as "Allowed" until defect eleven.
 
+## The user plane
+
+Worth stating separately, because it is easy to assume the opposite: **per-user
+statistics need no change to the agent at all.** The agent ships raw log lines
+and parses nothing; the username is on every line, and `traffic_rollups` is
+keyed by it and kept indefinitely. Measured on a real node:
+
+```text
+permanent (rollups)                 detail (30 days, raw events)
+username     decision  req  bytes   username     req  hosts  ips  avg_ms  max_ms
+stats-anna   ALLOWED    25  23544   stats-anna    25      1    1       1      29
+stats-bruno  ALLOWED     3   2829   stats-bruno    4      2    1      15      59
+stats-bruno  ERROR       1   3555
+```
+
+| KPI | Source | Why it earns a place |
+| --- | --- | --- |
+| Requests and bytes over time | R | The per-person answer to "who is using the proxy". |
+| Decision mix per user | R | One person hitting a wall repeatedly is a support ticket waiting to happen. |
+| Which nodes a person uses | R | Site assignment in practice rather than on paper. |
+| First seen, last seen | R | Dormant accounts - the same question ADR 0004's lease answers from the other side. |
+| Accounts with no traffic at all | R | Candidates for removal, which is otherwise guesswork. |
+| Top destinations per user | E | |
+| Distinct destinations | E | Breadth of use; a service account should be narrow. |
+| **Distinct client addresses** | E | A credential used from many addresses at once is the signature of a shared or leaked account. This is a security KPI, not a curiosity. |
+| Median and p95 response time | E | "The proxy is slow" is usually one person on one route. |
+| Usage by hour of day | R | Distinguishes a person from a scheduled job. |
+
+The one genuinely missing user-plane number is **upload bytes**, and that is a
+log format change rather than agent work - see decision 4. Concurrent sessions
+per user are not obtainable at all: HTTP proxying has no session, and Squid's
+connection counters are per process, not per identity.
+
 ## The honesty problem with the time range
 
 The available KPIs depend on the range chosen. Pick 90 days and half the page
@@ -159,11 +192,18 @@ That gives permanent request rate, error rate, cache ratio and mean response
 time. Percentiles cannot be aggregated this way — p95 stays a 30-day number
 unless we store histogram buckets, which I would not do for 1.0.
 
-### 4. Upload bytes — needs a decision, changes the log format
+### 4. Upload bytes — needs a decision, changes the log format, not the agent
 
-`%<st` is download only. Recording upload as well means `%>st` and a format v3.
-The parser already handles versioned formats, so the cost is one more field and
-a migration; the benefit is that "bandwidth" stops meaning half of it.
+`%<st` is download only. Recording upload as well means adding `%>st` and a
+format v3.
+
+This is smaller than it sounds, and it is worth being precise about why: the
+agent writes whatever configuration the compiler produces and ships whatever
+lines Squid writes. It does not parse them. A format change therefore touches
+the compiler, the parser and one migration - and every enrolled node picks it up
+on its next poll like any other configuration change. **No agent is rebuilt or
+redeployed.** The parser already carries an explicit version token, so v2 lines
+still in flight keep being read correctly while nodes converge.
 
 ### 5. Squid's own counters — larger, out of 1.0 in my view
 
