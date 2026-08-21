@@ -10,7 +10,7 @@ import {
   PageHeader,
   Select,
   Skeleton,
-  StackedTimeChart,
+  TimeSeriesChart,
   type BarListEntry,
   type TimePoint,
 } from '@scp/ui';
@@ -305,10 +305,11 @@ export function StatisticsPage(): JSX.Element {
 
           <Card
             title="Requests over time"
-            description={`Stacked by outcome, ${data.granularity}.`}
+            description={`Split by outcome, ${data.granularity}. Pick the form that answers your question.`}
           >
-            <StackedTimeChart
-              caption="Requests over time, stacked by outcome"
+            <TimeSeriesChart
+              storageKey="statistics.requests"
+              caption="Requests over time, by outcome"
               points={points}
               series={[
                 { key: 'allowed', label: 'Allowed', color: 'var(--chart-allowed)' },
@@ -323,7 +324,8 @@ export function StatisticsPage(): JSX.Element {
             title="Bytes over time"
             description="Two directions of one measure, so they share a scale rather than a second axis."
           >
-            <StackedTimeChart
+            <TimeSeriesChart
+              storageKey="statistics.bytes"
               caption="Bytes delivered to and received from clients over time"
               points={bytePoints}
               format={bytes}

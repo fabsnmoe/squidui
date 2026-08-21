@@ -243,6 +243,20 @@ horizon and which filter caused it. A page that silently switches between
 "everything" and "everything we still have" teaches its reader to mistrust all
 of it.
 
+**The reader picks the form.** Each time-series chart offers stacked bars,
+grouped bars, lines and stacked area, and remembers the choice. They are four
+answers to the same question - composition, comparison, trend - and which one is
+right depends on what the reader is looking for that day, which is not something
+we can know for them.
+
+A fifth option, **Share**, is kept deliberately apart. It is a donut of the whole
+selected period, and it does not draw time at all: it answers *what the split
+was*, not *when*. The control says so above the chart rather than letting
+somebody read a period total as a trend. It is capped at six segments, because
+part-to-whole stops being readable at a glance beyond that, and it is a donut
+rather than a pie so the hole can carry the total - the number people usually
+want when they reach for this form.
+
 **Charts** are inline SVG in `@scp/ui`, not a dependency. The series palette was
 picked by running a validator rather than by eye, which turned up something
 worth recording: the design system's `--color-danger-fg` and `--color-warning-fg`
