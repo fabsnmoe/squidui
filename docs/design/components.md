@@ -60,7 +60,8 @@ not implemented yet.
 | `Dialog` | built | focus trap, `Esc`, labelled by title |
 | `ConfirmDialog` | built | consequence text, affected entities, typed confirmation |
 | `Drawer` | built | right side, used by the rule editor |
-| `Popover` | planned | |
+| `HelpPopover` | built | A question mark beside a field label. Opens on click, not hover, so it works on touch and cannot fire from a passing cursor; positioned absolutely so opening it never moves the form. Closes on `Esc` and on a click outside. |
+| `Popover` (general) | planned | |
 | `Tooltip` | planned | native `title` is used meanwhile; never the only source of information |
 | `Toast` | built | success/error/info, auto dismiss, screen-reader live region |
 | `InlineAlert` | built | info/warning/danger/success, optional action |

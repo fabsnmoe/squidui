@@ -1,6 +1,8 @@
 import {
   forwardRef,
+  useEffect,
   useId,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
@@ -66,21 +68,79 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
 /* Field wrapper                                                               */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * An explanation that stays out of the way until it is wanted.
+ *
+ * A hint under the control pushes everything below it down and competes with
+ * the value for attention; for something a reader needs once and then knows,
+ * that is the wrong trade. This opens on click rather than hover, so it works
+ * on a touch screen and cannot be triggered by a passing cursor, and it is
+ * positioned absolutely so opening it never moves the form.
+ */
+export function HelpPopover({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const wrapper = useRef<HTMLSpanElement>(null);
+  const panelId = useId();
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    const onPointerDown = (event: MouseEvent): void => {
+      if (!wrapper.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('mousedown', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onPointerDown);
+    };
+  }, [open]);
+
+  return (
+    <span className="scp-help" ref={wrapper}>
+      <button
+        type="button"
+        className="scp-help-trigger"
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-label={`What does "${label}" mean?`}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <Icon name="help" />
+      </button>
+      {open ? (
+        <span className="scp-help-panel" id={panelId} role="note">
+          {children}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export interface FieldProps {
   label: string;
   hint?: ReactNode;
+  /** Shown behind a question mark beside the label, rather than under the control. */
+  help?: ReactNode;
   error?: string | null;
   optional?: boolean;
   htmlFor?: string;
   children: ReactNode;
 }
 
-export function Field({ label, hint, error, optional, htmlFor, children }: FieldProps): JSX.Element {
+export function Field({ label, hint, help, error, optional, htmlFor, children }: FieldProps): JSX.Element {
   return (
     <div className="scp-field">
-      <label className="scp-label" htmlFor={htmlFor}>
-        {label} {optional ? <span className="scp-label-optional">(optional)</span> : null}
-      </label>
+      {/* The trigger sits beside the label rather than inside it: a button
+          nested in a label is activated twice, once for each. */}
+      <span className="scp-label-row">
+        <label className="scp-label" htmlFor={htmlFor}>
+          {label} {optional ? <span className="scp-label-optional">(optional)</span> : null}
+        </label>
+        {help ? <HelpPopover label={label}>{help}</HelpPopover> : null}
+      </span>
       {children}
       {error ? (
         <span className="scp-error-text" role="alert">
@@ -208,15 +268,16 @@ export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string;
   options: SelectOption[];
   hint?: ReactNode;
+  help?: ReactNode;
   error?: string | null;
   placeholder?: string;
 }
 
-export function Select({ label, options, hint, error, placeholder, id, ...rest }: SelectProps): JSX.Element {
+export function Select({ label, options, hint, help, error, placeholder, id, ...rest }: SelectProps): JSX.Element {
   const generated = useId();
   const fieldId = id ?? generated;
   return (
-    <Field label={label} hint={hint} error={error} htmlFor={fieldId}>
+    <Field label={label} hint={hint} help={help} error={error} htmlFor={fieldId}>
       <select id={fieldId} className="scp-select" {...rest}>
         {placeholder ? <option value="">{placeholder}</option> : null}
         {options.map((option) => (

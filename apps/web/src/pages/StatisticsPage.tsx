@@ -209,7 +209,13 @@ export function StatisticsPage(): JSX.Element {
           <Select
             label="Aggregation"
             value={bucketWidth}
-            hint="Points are collected every 5 minutes and summed into whatever you pick."
+            help={
+              <>
+                Counters are collected every 5 minutes and summed into whatever you pick here, so the total is the
+                same at any width. Detail finer than 5 minutes is only available while individual requests are
+                still kept.
+              </>
+            }
             options={[
               { value: 'auto', label: 'Automatic — suited to the period' },
               { value: '5m', label: 'Every 5 minutes' },
