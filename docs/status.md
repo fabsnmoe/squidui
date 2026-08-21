@@ -11,7 +11,7 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 
 | Check | Result |
 | --- | --- |
-| `npm run test --workspace @scp/shared` | 112 tests pass |
+| `npm run test --workspace @scp/shared` | 117 tests pass |
 | `npm run test --workspace @scp/api` | 30 tests pass |
 | `npm run typecheck --workspace @scp/web` | clean, strict mode |
 | `docker compose build` (prod overlay) | both images build from a plain checkout |
@@ -403,3 +403,35 @@ the ID token alone.
 wrong belief about how identity providers behave, and only a real provider could
 correct it. No unit test would have held the right expectation, because the
 expectation itself was the defect.
+
+
+## Defect eleven: requests the proxy never served were shown as allowed
+
+Reported from a live node: a traffic log full of rows reading "Allowed" with no
+method, no destination, status 400, from an address nobody recognised. The
+obvious reading - that unauthenticated traffic was getting through while the
+mode was REQUIRED - was the alarming one, and it was wrong.
+
+**Cause.** `decisionOf` derived the decision from the HTTP status and treated
+everything that was not 407, DENIED or 5xx as an allowance. A request Squid
+refuses to parse is logged as `NONE_NONE/400 error:invalid-request`, and a
+connection that dies before the headers as `NONE_NONE/000`. Neither was
+forwarded or tunnelled; both were reported as allowed.
+
+**Fix.** The decision follows Squid's result code, which is what says whether
+the proxy served the request at all: `NONE_*` is an error, not an allowance. A
+404 from the origin stays allowed, because the proxy did let that through. The
+mapping was confirmed against lines a real Squid produced when sent rubbish, an
+early disconnect and TLS against the plaintext port.
+
+Migration 0009 corrects the history rather than only the future. The Squid
+result code is stored, so misclassified rows are reclassified and the hourly
+counters are moved from ALLOWED to ERROR - the counters outlive the raw rows,
+so leaving them would have left the dashboard wrong permanently. Buckets whose
+raw events have already aged out keep their original classification; that limit
+is in the migration rather than left for someone to discover.
+
+**Lesson worth keeping.** This one was found by a user reading the product, not
+by any test. The value was not merely imprecise: in a tool for access control,
+"Allowed" is the single most consequential word on the screen, and it was being
+said about requests that were never allowed. A label is part of the product.

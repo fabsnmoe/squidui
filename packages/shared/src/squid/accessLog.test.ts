@@ -142,3 +142,46 @@ describe('destination extraction', () => {
     expect(destinationPortOf(null, 'GET')).toBeNull();
   });
 });
+
+describe('decisionOf - requests the proxy never served', () => {
+  /*
+   * Reported from a real node: a traffic log full of "Allowed" rows with no
+   * method, no destination and status 400, from an address nobody recognised.
+   * Nothing had been allowed. Squid had refused to parse the request, and the
+   * mapping called anything that was not 407, DENIED or 5xx an allowance.
+   *
+   * These are the exact lines a real Squid produced when sent rubbish, an
+   * early disconnect, and TLS against the plaintext port.
+   */
+  const line = (squidStatus: string, httpStatus: string, url: string): string =>
+    `v2|1787342933.667|172.21.0.2|-|${squidStatus}|${httpStatus}|3359|0|-|${url}`;
+
+  it('does not call a malformed request allowed', () => {
+    const entry = parseAccessLogLine(line('NONE_NONE', '400', 'error:invalid-request'));
+    expect(entry?.decision).toBe('ERROR');
+  });
+
+  it('does not call a connection that ended before the headers allowed', () => {
+    const entry = parseAccessLogLine(line('NONE_NONE', '000', 'error:transaction-end-before-headers'));
+    expect(entry?.decision).toBe('ERROR');
+  });
+
+  it('still calls a real request through the proxy allowed', () => {
+    const entry = parseAccessLogLine(
+      'v2|1787342920.964|10.0.0.9|alice|TCP_TUNNEL|200|4096|12|CONNECT|example.com:443',
+    );
+    expect(entry?.decision).toBe('ALLOWED');
+  });
+
+  it('leaves a 404 from the origin allowed: the proxy did let it through', () => {
+    const entry = parseAccessLogLine(
+      'v2|1787342920.964|10.0.0.9|alice|TCP_MISS|404|512|8|GET|http://example.com/missing',
+    );
+    expect(entry?.decision).toBe('ALLOWED');
+  });
+
+  it('keeps a challenge distinct from a denial', () => {
+    expect(parseAccessLogLine(line('TCP_DENIED', '407', 'http://example.com/'))?.decision).toBe('AUTH_REQUIRED');
+    expect(parseAccessLogLine(line('TCP_DENIED', '403', 'http://example.com/'))?.decision).toBe('DENIED');
+  });
+});
