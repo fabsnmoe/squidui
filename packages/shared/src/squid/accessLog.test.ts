@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { decisionOf, destinationHostOf, destinationPortOf, parseAccessLogLine } from './accessLog.js';
+import {
+  ACCESS_LOG_FORMAT,
+  ACCESS_LOG_FORMAT_NAME,
+  decisionOf,
+  destinationHostOf,
+  destinationPortOf,
+  parseAccessLogLine,
+} from './accessLog.js';
 
 /** A current-format line, with the explicit version token Squid now writes. */
 const v2 = (fields: Partial<Record<string, string>> = {}): string =>
@@ -183,5 +190,61 @@ describe('decisionOf - requests the proxy never served', () => {
   it('keeps a challenge distinct from a denial', () => {
     expect(parseAccessLogLine(line('TCP_DENIED', '407', 'http://example.com/'))?.decision).toBe('AUTH_REQUIRED');
     expect(parseAccessLogLine(line('TCP_DENIED', '403', 'http://example.com/'))?.decision).toBe('DENIED');
+  });
+});
+
+describe('access log format v3 - upload bytes', () => {
+  /*
+   * A format change reaches nodes one poll at a time, so all three versions
+   * have to parse correctly at once: lines written a minute ago by a node that
+   * has not converged yet are still on their way.
+   */
+  it('reads the bytes received from the client', () => {
+    const entry = parseAccessLogLine(
+      'v3|1787342920.964|10.0.0.9|alice|TCP_MISS|200|4096|733|12|POST|http://example.com/upload',
+    );
+    expect(entry?.bytes).toBe(4096);
+    expect(entry?.bytesUploaded).toBe(733);
+    expect(entry?.durationMs).toBe(12);
+    expect(entry?.method).toBe('POST');
+    expect(entry?.destinationHost).toBe('example.com');
+    expect(entry?.decision).toBe('ALLOWED');
+  });
+
+  it('reports upload as unknown on v2, not as zero', () => {
+    const entry = parseAccessLogLine(
+      'v2|1787342920.964|10.0.0.9|alice|TCP_MISS|200|4096|12|GET|http://example.com/',
+    );
+    // Null and zero are different statements: nothing measured versus nothing
+    // uploaded. A chart that treats them alike understates traffic.
+    expect(entry?.bytesUploaded).toBeNull();
+    expect(entry?.bytes).toBe(4096);
+    expect(entry?.durationMs).toBe(12);
+    expect(entry?.method).toBe('GET');
+  });
+
+  it('still reads a v1 line, which has neither', () => {
+    const entry = parseAccessLogLine(
+      '1787342920.964|10.0.0.9|alice|TCP_MISS|200|4096|GET|http://example.com/',
+    );
+    expect(entry?.bytesUploaded).toBeNull();
+    expect(entry?.durationMs).toBeNull();
+    expect(entry?.method).toBe('GET');
+  });
+
+  it('keeps the URL last so a separator inside it survives v3 too', () => {
+    const entry = parseAccessLogLine(
+      'v3|1787342920.964|10.0.0.9|-|TCP_MISS|200|10|5|3|GET|http://example.com/a|b|c',
+    );
+    expect(entry?.url).toBe('http://example.com/a|b|c');
+    expect(entry?.bytesUploaded).toBe(5);
+  });
+
+  it('emits a format whose name and token agree', () => {
+    expect(ACCESS_LOG_FORMAT.startsWith('v3|')).toBe(true);
+    expect(ACCESS_LOG_FORMAT_NAME).toBe('scp_v3');
+    // The upload code has to sit between reply size and response time, which is
+    // the assumption the parser's field offsets are built on.
+    expect(ACCESS_LOG_FORMAT).toContain('%<st|%>st|%tr');
   });
 });

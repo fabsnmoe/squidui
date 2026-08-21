@@ -11,7 +11,7 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 
 | Check | Result |
 | --- | --- |
-| `npm run test --workspace @scp/shared` | 117 tests pass |
+| `npm run test --workspace @scp/shared` | 122 tests pass |
 | `npm run test --workspace @scp/api` | 30 tests pass |
 | `npm run typecheck --workspace @scp/web` | clean, strict mode |
 | `docker compose build` (prod overlay) | both images build from a plain checkout |
@@ -21,6 +21,7 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 | `./scripts/verify-e2e.sh` | 49 checks pass |
 | `./scripts/verify-listeners.sh` | 22 checks pass: corporate and guest listener on one node |
 | `./scripts/verify-oidc.sh` | 37 checks pass against a real Keycloak, including revocation proven through Squid |
+| `./scripts/verify-statistics.sh` | 31 checks pass: traffic of a known shape sent through Squid and reproduced by the statistics endpoint |
 | `./scripts/verify-squid.sh` | 38 checks pass against a real Squid and OpenLDAP |
 | `./scripts/verify-nodes.sh` | 26 checks pass across two real proxy nodes with their agents |
 | `./scripts/verify-traffic.sh` | 31 checks pass: real requests ingested, parsed, filtered and aggregated |

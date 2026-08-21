@@ -8,7 +8,7 @@
  * contains lines from both the old and the new format.
  */
 
-export const ACCESS_LOG_FORMAT_NAME = 'scp_v2';
+export const ACCESS_LOG_FORMAT_NAME = 'scp_v3';
 
 /*
  * %ts.%03tu  timestamp, seconds and milliseconds
@@ -25,7 +25,8 @@ export const ACCESS_LOG_FORMAT_NAME = 'scp_v2';
  * from the URL, which works for both absolute URLs and CONNECT targets and
  * avoids depending on a code that differs between Squid builds.
  */
-export const ACCESS_LOG_FORMAT = 'v2|%ts.%03tu|%>a|%[un|%Ss|%03>Hs|%<st|%tr|%rm|%ru';
+export const ACCESS_LOG_FORMAT =
+  'v3|%ts.%03tu|%>a|%[un|%Ss|%03>Hs|%<st|%>st|%tr|%rm|%ru';
 
 /**
  * v1 had no version token and no response time. v2 leads with an explicit
@@ -34,8 +35,11 @@ export const ACCESS_LOG_FORMAT = 'v2|%ts.%03tu|%>a|%[un|%Ss|%03>Hs|%<st|%tr|%rm|
  * variable.
  */
 const V2_PREFIX = 'v2|';
+const V3_PREFIX = 'v3|';
 const V1_FIELDS = 8;
 const V2_FIELDS = 9;
+/** v3 adds %>st, the bytes received from the client, between size and time. */
+const V3_FIELDS = 10;
 
 export type TrafficDecision = 'ALLOWED' | 'DENIED' | 'AUTH_REQUIRED' | 'ERROR';
 
@@ -46,7 +50,10 @@ export interface AccessLogEntry {
   /** Squid request status; this is the cache result, e.g. TCP_MISS. */
   squidStatus: string | null;
   httpStatus: number | null;
+  /** Bytes Squid sent to the client. */
   bytes: number | null;
+  /** Bytes Squid received from the client; null on log formats before v3. */
+  bytesUploaded: number | null;
   durationMs: number | null;
   method: string | null;
   url: string | null;
@@ -151,9 +158,12 @@ export function parseAccessLogLine(line: string): AccessLogEntry | null {
 
   // An explicit token, not the field count: the URL is last so that it may
   // contain the separator, which makes counting fields unreliable by design.
-  const isV2 = trimmed.startsWith(V2_PREFIX);
-  const body = isV2 ? trimmed.slice(V2_PREFIX.length) : trimmed;
-  const headCount = isV2 ? V2_FIELDS - 1 : V1_FIELDS - 1;
+  //
+  // All three versions are read, because a format change reaches nodes one poll
+  // at a time and lines written a minute ago are still in flight.
+  const version = trimmed.startsWith(V3_PREFIX) ? 3 : trimmed.startsWith(V2_PREFIX) ? 2 : 1;
+  const body = version === 1 ? trimmed : trimmed.slice(V2_PREFIX.length);
+  const headCount = (version === 3 ? V3_FIELDS : version === 2 ? V2_FIELDS : V1_FIELDS) - 1;
 
   const parts = body.split('|');
   if (parts.length < headCount + 1) return null;
@@ -165,7 +175,8 @@ export function parseAccessLogLine(line: string): AccessLogEntry | null {
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
 
   const httpStatus = numeric(head[4]);
-  const method = value(isV2 ? head[7] : head[6]);
+  // v3 shifts everything after the reply size along by one field.
+  const method = value(version === 3 ? head[8] : version === 2 ? head[7] : head[6]);
   const squidStatus = value(head[3]);
 
   return {
@@ -175,7 +186,10 @@ export function parseAccessLogLine(line: string): AccessLogEntry | null {
     squidStatus,
     httpStatus,
     bytes: numeric(head[5]),
-    durationMs: isV2 ? numeric(head[6]) : null,
+    // Only v3 carries it. Null rather than zero: nothing was measured, which is
+    // a different statement from "nothing was uploaded".
+    bytesUploaded: version === 3 ? numeric(head[6]) : null,
+    durationMs: version === 3 ? numeric(head[7]) : version === 2 ? numeric(head[6]) : null,
     method,
     url,
     destinationHost: destinationHostOf(url, method),

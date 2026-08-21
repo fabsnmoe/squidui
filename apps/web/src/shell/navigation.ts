@@ -133,6 +133,13 @@ export const NAVIGATION: NavGroup[] = [
     label: 'Observability',
     items: [
       {
+        label: 'Statistics',
+        to: '/observability/statistics',
+        icon: 'dashboard',
+        permission: 'TRAFFIC_READ',
+        keywords: ['kpi', 'bandwidth', 'usage', 'trend', 'per user', 'per node'],
+      },
+      {
         label: 'Traffic logs',
         to: '/observability/logs',
         icon: 'file',

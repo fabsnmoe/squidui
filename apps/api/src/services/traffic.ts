@@ -15,6 +15,8 @@ export interface IngestOptions {
   /** Store the full URL, or only the destination host. */
   logUrls: boolean;
   retentionDays: number;
+  /** How long the hourly statistics survive. Zero keeps them indefinitely. */
+  statisticsRetentionDays: number;
 }
 
 export interface IngestResult {
@@ -62,7 +64,7 @@ export async function ingestAccessLog(
     [nodeId, entries.length, rejected],
   );
 
-  await pruneIfDue(db, options.retentionDays);
+  await pruneIfDue(db, options);
   return { accepted: entries.length, rejected };
 }
 
@@ -72,7 +74,7 @@ async function insertEvents(
   entries: readonly AccessLogEntry[],
   options: IngestOptions,
 ): Promise<void> {
-  const columns = 13;
+  const columns = 14;
   const values: unknown[] = [];
   const tuples: string[] = [];
 
@@ -81,7 +83,7 @@ async function insertEvents(
     tuples.push(
       `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, ` +
         `$${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, ` +
-        `$${base + 12}, $${base + 13})`,
+        `$${base + 12}, $${base + 13}, $${base + 14})`,
     );
     values.push(
       nodeId,
@@ -91,6 +93,7 @@ async function insertEvents(
       entry.squidStatus,
       entry.httpStatus,
       entry.bytes,
+      entry.bytesUploaded,
       entry.method,
       entry.destinationHost,
       entry.destinationPort,
@@ -106,7 +109,7 @@ async function insertEvents(
   await db.query(
     `insert into traffic_events
        (node_id, occurred_at, client_ip, username, squid_status, http_status, bytes,
-        method, destination_host, destination_port, duration_ms, url, decision)
+        bytes_uploaded, method, destination_host, destination_port, duration_ms, url, decision)
      values ${tuples.join(', ')}`,
     values,
   );
@@ -115,16 +118,71 @@ async function insertEvents(
 async function updateRollups(db: Db, nodeId: string, entries: readonly AccessLogEntry[]): Promise<void> {
   // Aggregated in memory first: one upsert per distinct bucket beats one per
   // request line by orders of magnitude on a busy proxy.
-  const counters = new Map<string, { bucket: string; authenticated: boolean; username: string; decision: string; requests: number; bytes: number }>();
+  interface IdentityCounter {
+    bucket: string;
+    authenticated: boolean;
+    username: string;
+    decision: string;
+    requests: number;
+    bytes: number;
+    bytesUploaded: number;
+    durationSum: number;
+    durationCount: number;
+    durationMax: number;
+  }
+  interface DimensionCounter {
+    bucket: string;
+    key: string;
+    requests: number;
+    bytes: number;
+    bytesUploaded: number;
+  }
+
+  const counters = new Map<string, IdentityCounter>();
+  // Destinations and client addresses are their own cubes rather than further
+  // dimensions on this one. Multiplying them out is what turns a rollup into
+  // something the size of the raw data it was meant to replace.
+  const destinations = new Map<string, DimensionCounter>();
+  const clients = new Map<string, DimensionCounter>();
+
+  const addDimension = (
+    into: Map<string, DimensionCounter>,
+    bucket: string,
+    key: string,
+    bytes: number,
+    uploaded: number,
+  ): void => {
+    const mapKey = `${bucket}|${key}`;
+    const found = into.get(mapKey);
+    if (found) {
+      found.requests += 1;
+      found.bytes += bytes;
+      found.bytesUploaded += uploaded;
+    } else {
+      into.set(mapKey, { bucket, key, requests: 1, bytes, bytesUploaded: uploaded });
+    }
+  };
 
   for (const entry of entries) {
     const bucket = bucketOf(entry.occurredAt);
     const username = entry.username ?? '';
+    const bytes = entry.bytes ?? 0;
+    // Null means the node has not picked up format v3 yet. A sum has no way to
+    // express "unknown", so it counts as zero here and the page says when a
+    // range predates the format rather than presenting the dip as a fact.
+    const uploaded = entry.bytesUploaded ?? 0;
+
     const key = `${bucket}|${username}|${entry.decision}`;
     const existing = counters.get(key);
     if (existing) {
       existing.requests += 1;
-      existing.bytes += entry.bytes ?? 0;
+      existing.bytes += bytes;
+      existing.bytesUploaded += uploaded;
+      if (entry.durationMs !== null) {
+        existing.durationSum += entry.durationMs;
+        existing.durationCount += 1;
+        existing.durationMax = Math.max(existing.durationMax, entry.durationMs);
+      }
     } else {
       counters.set(key, {
         bucket,
@@ -132,34 +190,107 @@ async function updateRollups(db: Db, nodeId: string, entries: readonly AccessLog
         username,
         decision: entry.decision,
         requests: 1,
-        bytes: entry.bytes ?? 0,
+        bytes,
+        bytesUploaded: uploaded,
+        // Counted separately from requests: a mean over rows that never
+        // reported a time would be a different number than it claims to be.
+        durationSum: entry.durationMs ?? 0,
+        durationCount: entry.durationMs === null ? 0 : 1,
+        durationMax: entry.durationMs ?? 0,
       });
     }
+
+    if (entry.destinationHost) addDimension(destinations, bucket, entry.destinationHost, bytes, uploaded);
+    if (entry.clientIp) addDimension(clients, bucket, entry.clientIp, bytes, uploaded);
   }
 
   for (const counter of counters.values()) {
     await db.query(
-      `insert into traffic_rollups (bucket, node_id, authenticated, username, decision, requests, bytes)
-       values ($1, $2, $3, $4, $5, $6, $7)
+      `insert into traffic_rollups
+         (bucket, node_id, authenticated, username, decision, requests, bytes,
+          bytes_uploaded, duration_sum, duration_count, duration_max)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        on conflict (bucket, node_id, authenticated, username, decision) do update set
          requests = traffic_rollups.requests + excluded.requests,
-         bytes = traffic_rollups.bytes + excluded.bytes`,
-      [counter.bucket, nodeId, counter.authenticated, counter.username, counter.decision, counter.requests, counter.bytes],
+         bytes = traffic_rollups.bytes + excluded.bytes,
+         bytes_uploaded = traffic_rollups.bytes_uploaded + excluded.bytes_uploaded,
+         duration_sum = traffic_rollups.duration_sum + excluded.duration_sum,
+         duration_count = traffic_rollups.duration_count + excluded.duration_count,
+         duration_max = greatest(traffic_rollups.duration_max, excluded.duration_max)`,
+      [
+        counter.bucket,
+        nodeId,
+        counter.authenticated,
+        counter.username,
+        counter.decision,
+        counter.requests,
+        counter.bytes,
+        counter.bytesUploaded,
+        counter.durationSum,
+        counter.durationCount,
+        counter.durationMax,
+      ],
+    );
+  }
+
+  for (const destination of destinations.values()) {
+    await db.query(
+      `insert into traffic_destination_rollups
+         (bucket, node_id, destination_host, requests, bytes, bytes_uploaded)
+       values ($1, $2, $3, $4, $5, $6)
+       on conflict (bucket, node_id, destination_host) do update set
+         requests = traffic_destination_rollups.requests + excluded.requests,
+         bytes = traffic_destination_rollups.bytes + excluded.bytes,
+         bytes_uploaded = traffic_destination_rollups.bytes_uploaded + excluded.bytes_uploaded`,
+      [
+        destination.bucket,
+        nodeId,
+        destination.key.slice(0, 255),
+        destination.requests,
+        destination.bytes,
+        destination.bytesUploaded,
+      ],
+    );
+  }
+
+  for (const client of clients.values()) {
+    await db.query(
+      `insert into traffic_client_rollups
+         (bucket, node_id, client_ip, requests, bytes, bytes_uploaded)
+       values ($1, $2, $3, $4, $5, $6)
+       on conflict (bucket, node_id, client_ip) do update set
+         requests = traffic_client_rollups.requests + excluded.requests,
+         bytes = traffic_client_rollups.bytes + excluded.bytes,
+         bytes_uploaded = traffic_client_rollups.bytes_uploaded + excluded.bytes_uploaded`,
+      [client.bucket, nodeId, client.key.slice(0, 64), client.requests, client.bytes, client.bytesUploaded],
     );
   }
 }
 
-async function pruneIfDue(db: Db, retentionDays: number): Promise<void> {
+async function pruneIfDue(db: Db, options: IngestOptions): Promise<void> {
   const now = Date.now();
   if (now - lastPruneAt < PRUNE_INTERVAL_MS) return;
   lastPruneAt = now;
-  // Only the raw rows expire. The hourly counters stay, so a year-old month
-  // still has numbers even though the individual requests are long gone.
+
+  // Two windows, because they hold different things. The raw rows are personal
+  // data and expire first; the hourly counters carry no URL and no individual
+  // request, so they can be kept far longer without keeping a record of what
+  // any one person read.
+  const rawDays = String(Math.max(1, options.retentionDays));
   await db
-    .query(`delete from traffic_events where occurred_at < now() - ($1 || ' days')::interval`, [
-      String(Math.max(1, retentionDays)),
-    ])
+    .query(`delete from traffic_events where occurred_at < now() - ($1 || ' days')::interval`, [rawDays])
     .catch(() => undefined);
+
+  // Zero means keep indefinitely, which is what installations upgrading into
+  // this had before the setting existed. Deleting their history because a new
+  // default appeared would be indefensible.
+  if (options.statisticsRetentionDays <= 0) return;
+  const statsDays = String(options.statisticsRetentionDays);
+  for (const table of ['traffic_rollups', 'traffic_destination_rollups', 'traffic_client_rollups']) {
+    await db
+      .query(`delete from ${table} where bucket < now() - ($1 || ' days')::interval`, [statsDays])
+      .catch(() => undefined);
+  }
 }
 
 /** Exposed for tests: forces the next ingest to run the retention delete. */

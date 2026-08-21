@@ -12,3 +12,4 @@ export * from './components/surfaces.js';
 export * from './components/feedback.js';
 export * from './components/overlays.js';
 export * from './components/DataTable.js';
+export * from './components/charts.js';

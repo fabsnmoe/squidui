@@ -1274,3 +1274,44 @@ code, pre, kbd {
   flex: 1 1 240px;
   max-width: 360px;
 }
+
+/* --- charts --------------------------------------------------------------- */
+/* Geometry lives in the component; this is only surface, spacing and type. */
+.scp-chart { position: relative; display: flex; flex-direction: column; gap: var(--space-2); }
+.scp-chart-svg { width: 100%; display: block; }
+.scp-chart-svg g:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+.scp-chart-tooltip {
+  position: absolute; top: var(--space-2); right: var(--space-2);
+  background: var(--color-surface-overlay); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);
+  box-shadow: var(--shadow-md); font-size: var(--font-size-sm);
+  display: flex; flex-direction: column; gap: 2px; pointer-events: none; min-width: 12rem;
+}
+.scp-chart-tooltip-title { font-weight: var(--font-weight-medium); margin-bottom: 2px; }
+.scp-chart-tooltip-row { display: grid; grid-template-columns: auto 1fr auto; gap: var(--space-2); align-items: center; }
+
+.scp-chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.scp-chart-legend-item { display: inline-flex; align-items: center; gap: var(--space-1); }
+.scp-chart-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: 0 0 auto; }
+
+.scp-chart-toggle {
+  align-self: flex-start; background: none; border: none; padding: 0;
+  color: var(--color-text-secondary); font-size: var(--font-size-sm);
+  text-decoration: underline; cursor: pointer;
+}
+.scp-chart-toggle:hover { color: var(--color-text-primary); }
+
+.scp-barlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.scp-barlist-row { display: flex; flex-direction: column; gap: var(--space-1); }
+.scp-barlist-head { display: flex; justify-content: space-between; gap: var(--space-3); align-items: baseline; }
+.scp-barlist-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scp-barlist-track { height: 6px; border-radius: 3px; background: var(--color-surface-sunken); overflow: hidden; }
+.scp-barlist-fill { height: 100%; border-radius: 3px; }
+
+.scp-filter-row {
+  display: grid; gap: var(--space-3); align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+.scp-metric-grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+.scp-card-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }

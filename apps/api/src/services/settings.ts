@@ -57,6 +57,20 @@ export const SETTING_TRAFFIC_LOG_URLS = 'traffic.logUrls';
  * rather than constants: the right number depends on how an organisation
  * works, and nobody edits a container to find out.
  */
+/**
+ * How long the hourly statistics survive (docs/design/statistics.md).
+ *
+ * Separate from the raw request retention on purpose: the raw rows carry URLs
+ * and individual requests and are personal data, while the counters carry
+ * neither. Keeping the counters far longer is what makes a year of trend
+ * possible without keeping a year of what any one person read.
+ *
+ * Zero means keep indefinitely, which is what installations had before the
+ * setting existed. A new default must not silently delete their history.
+ */
+export const SETTING_STATISTICS_RETENTION_DAYS = 'statistics.retentionDays';
+export const DEFAULT_STATISTICS_RETENTION_DAYS = 365;
+
 export const SETTING_OIDC_LEASE_DAYS = 'oidc.leaseDays';
 export const SETTING_OIDC_RENEWAL_WINDOW_DAYS = 'oidc.renewalWindowDays';
 

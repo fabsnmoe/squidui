@@ -6,7 +6,12 @@ import { badRequest, clientIp, unauthorized, HttpError } from '../http/context.j
 import { AuthenticationProviderRegistry } from '../providers/registry.js';
 import { configurationHash, hashCredential, generateCredential, looksLike } from '../security/agentAuth.js';
 import { compileCurrentConfiguration } from '../services/configuration.js';
-import { getSetting, SETTING_TRAFFIC_LOG_URLS } from '../services/settings.js';
+import {
+  getSetting,
+  DEFAULT_STATISTICS_RETENTION_DAYS,
+  SETTING_STATISTICS_RETENTION_DAYS,
+  SETTING_TRAFFIC_LOG_URLS,
+} from '../services/settings.js';
 import { ingestAccessLog } from '../services/traffic.js';
 import type { AppContext } from '../server.js';
 
@@ -224,6 +229,7 @@ export async function registerAgentRoutes(app: FastifyInstance, context: AppCont
       // URL logging on in the UI, not by redeploying a container.
       logUrls: await getSetting(db, SETTING_TRAFFIC_LOG_URLS, config.traffic.logUrls),
       retentionDays: config.traffic.retentionDays,
+      statisticsRetentionDays: await getSetting(db, SETTING_STATISTICS_RETENTION_DAYS, DEFAULT_STATISTICS_RETENTION_DAYS),
     });
 
     await db.query('update proxy_nodes set last_seen_at = now() where id = $1', [agent.nodeId]);

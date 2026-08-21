@@ -17,6 +17,7 @@ import { registerOidcRoutes } from './routes/oidc.js';
 import { expireStaleLeases } from './services/accessLease.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerTrafficRoutes } from './routes/traffic.js';
+import { registerStatisticsRoutes } from './routes/statistics.js';
 import { registerProxyAuthRoutes } from './routes/proxyAuth.js';
 import { registerProxyIdentityRoutes } from './routes/proxyIdentity.js';
 import { registerSessionRoutes } from './routes/session.js';
@@ -150,6 +151,7 @@ export async function buildServer(db: Db, config: AppConfig): Promise<FastifyIns
       await registerConfigurationRoutes(instance, context);
       await registerDashboardRoutes(instance, context);
       await registerTrafficRoutes(instance, context);
+      await registerStatisticsRoutes(instance, context);
       await registerSettingsRoutes(instance, context);
       await registerAuditRoutes(instance, context);
     },

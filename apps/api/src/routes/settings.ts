@@ -6,7 +6,9 @@ import {
   accessLeasePolicy,
   getSetting,
   setSetting,
+  DEFAULT_STATISTICS_RETENTION_DAYS,
   SETTING_OIDC_LEASE_DAYS,
+  SETTING_STATISTICS_RETENTION_DAYS,
   SETTING_OIDC_RENEWAL_WINDOW_DAYS,
   SETTING_TRAFFIC_LOG_URLS,
 } from '../services/settings.js';
@@ -19,6 +21,8 @@ const patchSchema = z.object({
   // One day is the shortest lease that still means anything; a year is the
   // longest that can still be called deprovisioning.
   leaseDays: z.number().int().min(1).max(365).optional(),
+  // Zero is "keep indefinitely", which is why the floor is not one.
+  statisticsRetentionDays: z.number().int().min(0).max(3650).optional(),
   renewalWindowDays: z.number().int().min(0).max(365).optional(),
 });
 
@@ -40,6 +44,13 @@ export async function registerSettingsRoutes(app: FastifyInstance, context: AppC
       // Directory-backed proxy access is a lease that only a sign-in renews
       // (ADR 0004). Both numbers are operator decisions, not constants.
       accessLease: await accessLeasePolicy(db),
+      statistics: {
+        retentionDays: await getSetting(db, SETTING_STATISTICS_RETENTION_DAYS, DEFAULT_STATISTICS_RETENTION_DAYS),
+        // Shown together so nobody has to guess which window governs which
+        // number on the statistics page.
+        rawRetentionDays: config.traffic.retentionDays,
+        rawRetentionConfigurableAt: 'TRAFFIC_LOG_RETENTION_DAYS',
+      },
       build: config.build,
     };
   });
@@ -66,6 +77,25 @@ export async function registerSettingsRoutes(app: FastifyInstance, context: AppC
         targetId: key,
         targetName: label,
         payload: { from: previous, to: value },
+      });
+    }
+
+    if (parsed.data.statisticsRetentionDays !== undefined) {
+      const previous = await getSetting(
+        db,
+        SETTING_STATISTICS_RETENTION_DAYS,
+        DEFAULT_STATISTICS_RETENTION_DAYS,
+      );
+      await setSetting(db, SETTING_STATISTICS_RETENTION_DAYS, parsed.data.statisticsRetentionDays, principal.username);
+      // Lowering this deletes history at the next ingest and cannot be undone,
+      // so both values go into the audit trail.
+      await recordAudit(db, {
+        action: 'SETTINGS_UPDATED',
+        actor: actorOf(request),
+        targetType: 'setting',
+        targetId: SETTING_STATISTICS_RETENTION_DAYS,
+        targetName: 'Statistics retention',
+        payload: { from: previous, to: parsed.data.statisticsRetentionDays },
       });
     }
 

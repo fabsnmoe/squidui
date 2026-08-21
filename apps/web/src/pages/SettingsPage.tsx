@@ -29,8 +29,11 @@ export function SettingsPage(): JSX.Element {
   const settings = useQuery<{
     traffic: { logUrls: boolean; retentionDays: number; retentionConfigurableAt: string };
     accessLease: { leaseDays: number; renewalWindowDays: number };
+    statistics: { retentionDays: number; rawRetentionDays: number; rawRetentionConfigurableAt: string };
   }>((signal) => api('/settings', { signal }));
   const [lease, setLease] = useState<{ leaseDays: string; renewalWindowDays: string } | null>(null);
+  const [statsDays, setStatsDays] = useState<string | null>(null);
+  const [statsBusy, setStatsBusy] = useState(false);
   const [leaseBusy, setLeaseBusy] = useState(false);
 
   const setTrafficLogUrls = async (enabled: boolean): Promise<void> => {
@@ -252,6 +255,49 @@ export function SettingsPage(): JSX.Element {
             Shortening the lease does not shorten leases already granted; those keep their date until the next
             renewal.
           </p>
+        </div>
+      </Card>
+
+      <Card
+        title="Statistics retention"
+        description="How long the hourly counters behind Observability → Statistics are kept."
+      >
+        <div className="scp-stack">
+          <InlineAlert tone="info" title="Two windows, and they hold different things">
+            Individual requests carry URLs and client addresses and expire after{' '}
+            {settings.data?.statistics.rawRetentionDays ?? 30} days — that window is deployment configuration
+            ({settings.data?.statistics.rawRetentionConfigurableAt ?? 'TRAFFIC_LOG_RETENTION_DAYS'}), because
+            shortening it deletes evidence someone may be required to keep. The hourly counters below carry no
+            URL and no individual request, which is why they can be kept far longer.
+          </InlineAlert>
+          <Input
+            label="Keep statistics for, in days"
+            type="number"
+            value={statsDays ?? String(settings.data?.statistics.retentionDays ?? 365)}
+            hint="Zero keeps them for as long as the installation exists. Lowering this deletes older statistics at the next ingest and cannot be undone."
+            onChange={(event) => setStatsDays(event.target.value)}
+          />
+          <Button
+            variant="primary"
+            disabled={statsDays === null}
+            loading={statsBusy}
+            onClick={() => {
+              if (statsDays === null) return;
+              setStatsBusy(true);
+              void api('/settings', { method: 'PATCH', body: { statisticsRetentionDays: Number(statsDays) } })
+                .then(() => {
+                  toast.success('Statistics retention saved', 'It applies at the next ingest.');
+                  setStatsDays(null);
+                  settings.reload();
+                })
+                .catch((error: unknown) =>
+                  toast.error('Could not save', error instanceof ApiError ? error.message : 'Unexpected error.'),
+                )
+                .finally(() => setStatsBusy(false));
+            }}
+          >
+            Save retention
+          </Button>
         </div>
       </Card>
 

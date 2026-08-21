@@ -1,7 +1,11 @@
 # Observability → Statistics
 
-Concept for a per-node statistics page. Written before implementation, because
-two of the decisions in it change the data model and one changes the log format.
+Status: **implemented**, verified by `scripts/verify-statistics.sh` (31 checks
+against a real Squid).
+
+Written as a concept first, because two of the decisions changed the data model
+and one changed the log format. What follows is what was built; the decisions
+taken are recorded at the end.
 
 ## The question the page answers
 
@@ -212,6 +216,40 @@ Squid CPU or cache disk usage. Squid exposes all of it through the cache
 manager, and the agent already runs next to it and already reports. This would
 be the right way to make the page a real operations view — and it is a new
 collection path with its own failure modes, so it belongs after 1.0.
+
+## What was built
+
+**Storage.** Migration 0010 adds upload bytes and aggregated response time to
+`traffic_rollups`, and two new cubes keyed only by `(bucket, node)`:
+`traffic_destination_rollups` and `traffic_client_rollups`. Neither carries a
+user dimension - the product of those dimensions is what would turn a rollup
+into something the size of the raw data it replaces.
+
+**Log format v3** adds `%>st`, the bytes received from the client. The parser
+reads v1, v2 and v3 at once, because a format change reaches nodes one poll at a
+time and lines written a minute ago are still in flight. No agent was rebuilt.
+
+**Two retentions, and they are different things.** Raw requests carry URLs and
+client addresses and stay deployment configuration; the hourly counters carry
+neither and are configurable under `System -> Settings`, defaulting to 365 days.
+Zero means keep indefinitely, which is what installations had before the setting
+existed - a new default must not silently delete their history.
+
+**The endpoint chooses its own store.** `/statistics` answers from raw events
+when the range and the filters allow it, and from the counters otherwise, and
+reports which one it used, what the two retentions are, and - when a detail
+filter forces the raw path - that the answer was truncated to the retention
+horizon and which filter caused it. A page that silently switches between
+"everything" and "everything we still have" teaches its reader to mistrust all
+of it.
+
+**Charts** are inline SVG in `@scp/ui`, not a dependency. The series palette was
+picked by running a validator rather than by eye, which turned up something
+worth recording: the design system's `--color-danger-fg` and `--color-warning-fg`
+sit 9 dE apart in normal vision. Fine as text beside an icon, unusable as
+neighbouring segments of a stacked bar. Chart series therefore have their own
+`--chart-*` tokens, stepped separately for light and dark, and both sets pass
+all six checks.
 
 ## Recommendation
 

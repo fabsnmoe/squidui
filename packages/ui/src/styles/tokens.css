@@ -125,6 +125,19 @@
   --color-focus-ring-soft: rgba(99, 102, 241, 0.28);
   --color-overlay-scrim: rgba(15, 23, 42, 0.32);
 
+  /* Chart series. Separate from the status foregrounds on purpose: those are
+     tuned to be read as text beside an icon, and two of them - danger and
+     warning - sit only 9 dE apart, which is indistinguishable as adjacent
+     segments of a stacked bar even with full colour vision. These steps were
+     picked by running the palette validator against this surface. */
+  --chart-allowed: #047857;
+  --chart-challenged: #2563eb;
+  --chart-denied: #ca8a04;
+  --chart-error: #dc2626;
+  --chart-down: #4f46e5;
+  --chart-up: #a5b4fc;
+  --chart-grid: rgba(15, 23, 42, 0.08);
+
   --color-success-fg: #15803d;
   --color-success-bg: #ecfdf3;
   --color-success-border: #abefc6;
@@ -178,6 +191,16 @@
   --color-focus-ring: #818cf8;
   --color-focus-ring-soft: rgba(129, 140, 248, 0.32);
   --color-overlay-scrim: rgba(2, 4, 8, 0.66);
+
+  /* Dark mode is stepped separately, not flipped: the validator's band for a
+     dark surface is L 0.48-0.67, and the light steps sit above it. */
+  --chart-allowed: #16a34a;
+  --chart-challenged: #2563eb;
+  --chart-denied: #d97706;
+  --chart-error: #e11d48;
+  --chart-down: #818cf8;
+  --chart-up: #c7d2fe;
+  --chart-grid: rgba(226, 232, 240, 0.1);
 
   --color-success-fg: #4ade80;
   --color-success-bg: #05291a;
