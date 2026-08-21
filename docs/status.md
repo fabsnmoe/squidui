@@ -11,7 +11,7 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 
 | Check | Result |
 | --- | --- |
-| `npm run test --workspace @scp/shared` | 111 tests pass |
+| `npm run test --workspace @scp/shared` | 117 tests pass |
 | `npm run test --workspace @scp/api` | 30 tests pass |
 | `npm run typecheck --workspace @scp/web` | clean, strict mode |
 | `docker compose build` (prod overlay) | both images build from a plain checkout |
@@ -20,6 +20,7 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 | `GET /api/health/ready` | `200 {"status":"ready"}` |
 | `./scripts/verify-e2e.sh` | 49 checks pass |
 | `./scripts/verify-listeners.sh` | 22 checks pass: corporate and guest listener on one node |
+| `./scripts/verify-oidc.sh` | 37 checks pass against a real Keycloak, including revocation proven through Squid |
 | `./scripts/verify-squid.sh` | 38 checks pass against a real Squid and OpenLDAP |
 | `./scripts/verify-nodes.sh` | 26 checks pass across two real proxy nodes with their agents |
 | `./scripts/verify-traffic.sh` | 31 checks pass: real requests ingested, parsed, filtered and aggregated |
@@ -360,3 +361,77 @@ correctly, and the product was close to unusable for its actual purpose. Nothing
 in this repository types into a form. Until something does, this class of defect
 is invisible here - which is an argument for the interaction tests in phase 14
 being real tests, not screenshots.
+
+
+## Defect nine: a revoked user kept getting through the proxy
+
+Found by `verify-oidc.sh` while proving that deprovisioning deprovisions.
+
+**Symptom.** The account was disabled in the database, the audit entry was
+there, the agent had deployed a configuration without that user in the password
+file - and the person's requests still returned 200.
+
+**Cause.** `auth_param basic credentialsttl 2 hours`, inherited as a default
+nobody had questioned. Squid trusts a successful credential check for that long
+and does not consult the helper again, so revoking access had no effect for up
+to two hours on anyone already using the proxy.
+
+**Fix.** Five minutes, as a named constant with the reasoning next to it, and a
+regression test that fails if the value is ever expressed in hours again.
+
+**Lesson worth keeping.** Every layer above Squid was correct: the row, the
+audit entry, the generated file, the deployment. The verification only found it
+because it asked the proxy rather than the database. A test that had asserted
+"the user is disabled" would have passed while the product leaked access.
+
+## Defect ten: the admission claim was read from the wrong token
+
+**Symptom.** A correctly configured Keycloak refused every administrator with
+"not permitted to administer this control plane".
+
+**Cause.** The implementation read claims from the ID token. Keycloak puts
+`realm_access.roles` in the access token; its realm roles mapper ships with
+"Add to ID token" off, and other providers behave similarly for role and group
+claims.
+
+**Fix.** The claim is looked up in the ID token, then the access token, then
+UserInfo - with the access token verified for signature, issuer, expiry and
+matching subject before anything is read out of it. Identity still comes from
+the ID token alone.
+
+**Lesson worth keeping.** This was not a bug in the code as written; it was a
+wrong belief about how identity providers behave, and only a real provider could
+correct it. No unit test would have held the right expectation, because the
+expectation itself was the defect.
+
+
+## Defect eleven: requests the proxy never served were shown as allowed
+
+Reported from a live node: a traffic log full of rows reading "Allowed" with no
+method, no destination, status 400, from an address nobody recognised. The
+obvious reading - that unauthenticated traffic was getting through while the
+mode was REQUIRED - was the alarming one, and it was wrong.
+
+**Cause.** `decisionOf` derived the decision from the HTTP status and treated
+everything that was not 407, DENIED or 5xx as an allowance. A request Squid
+refuses to parse is logged as `NONE_NONE/400 error:invalid-request`, and a
+connection that dies before the headers as `NONE_NONE/000`. Neither was
+forwarded or tunnelled; both were reported as allowed.
+
+**Fix.** The decision follows Squid's result code, which is what says whether
+the proxy served the request at all: `NONE_*` is an error, not an allowance. A
+404 from the origin stays allowed, because the proxy did let that through. The
+mapping was confirmed against lines a real Squid produced when sent rubbish, an
+early disconnect and TLS against the plaintext port.
+
+Migration 0009 corrects the history rather than only the future. The Squid
+result code is stored, so misclassified rows are reclassified and the hourly
+counters are moved from ALLOWED to ERROR - the counters outlive the raw rows,
+so leaving them would have left the dashboard wrong permanently. Buckets whose
+raw events have already aged out keep their original classification; that limit
+is in the migration rather than left for someone to discover.
+
+**Lesson worth keeping.** This one was found by a user reading the product, not
+by any test. The value was not merely imprecise: in a tool for access control,
+"Allowed" is the single most consequential word on the screen, and it was being
+said about requests that were never allowed. A label is part of the product.

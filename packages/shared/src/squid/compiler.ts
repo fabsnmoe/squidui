@@ -84,6 +84,14 @@ export interface CompiledConfiguration {
  */
 const AUTH_PORTS_ACL = 'scp_auth_ports';
 
+/**
+ * Upper bound on how long a disabled proxy account still works. Every check
+ * after the cache expires goes back to the helper, which for the local file is
+ * a lookup and for a directory a bind - the cost of being able to say that
+ * revoking access revokes access.
+ */
+const CREDENTIALS_TTL_MINUTES = 5;
+
 const DAY_LETTERS: Record<Weekday, string> = {
   SUN: 'S',
   MON: 'M',
@@ -223,7 +231,13 @@ export function compileConfiguration(
     out.push(`auth_param basic program ${authProgram}`);
     out.push('auth_param basic children 20 startup=0 idle=1 concurrency=0');
     out.push(`auth_param basic realm ${ir.authentication.realm}`);
-    out.push('auth_param basic credentialsttl 2 hours');
+    // How long Squid trusts a successful credential check before asking the
+    // helper again - and therefore how long a disabled account keeps working.
+    // Two hours was the inherited default; a request through a real Squid
+    // showed a revoked user still getting through, because the answer had
+    // already been cached. For a product whose purpose is access control,
+    // revocation latency is a security property, not a tuning knob.
+    out.push(`auth_param basic credentialsttl ${CREDENTIALS_TTL_MINUTES} minutes`);
     out.push('auth_param basic casesensitive off');
     out.push('');
     out.push('acl scp_authenticated proxy_auth REQUIRED');

@@ -21,6 +21,13 @@ export interface AppConfig {
   bootstrapAdminUsername: string;
   bootstrapAdminPassword: string | null;
   seedDemoData: boolean;
+  /**
+   * Public origin of the control plane, for example
+   * https://proxy-manage.example.de. OIDC redirect URIs are built from it
+   * rather than from the request, so the flow cannot be pointed at another
+   * host by a forged Host header (ADR 0004).
+   */
+  publicBaseUrl: string | null;
   traffic: {
     /** How long raw request rows are kept. Hourly rollups outlive them. */
     retentionDays: number;
@@ -95,6 +102,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     proxyPasswordFormat: formatText,
     bootstrapAdminUsername: env.BOOTSTRAP_ADMIN_USERNAME ?? 'admin',
     bootstrapAdminPassword: env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || null,
+    publicBaseUrl: (env.PUBLIC_BASE_URL ?? '').replace(/\/+$/, '') || null,
     seedDemoData: (env.SEED_DEMO_DATA ?? 'false').toLowerCase() === 'true',
     traffic: {
       retentionDays: optionalNumber(env.TRAFFIC_LOG_RETENTION_DAYS ?? env.TRAFFIC_RETENTION_DAYS, 30),

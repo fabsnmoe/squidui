@@ -118,9 +118,29 @@ export function destinationPortOf(url: string | null, method: string | null): nu
  * authenticate, which is the first request of every session.
  */
 export function decisionOf(squidStatus: string | null, httpStatus: number | null): TrafficDecision {
+  // A challenge is not a denial: the client may still come back with credentials.
   if (httpStatus === 407) return 'AUTH_REQUIRED';
   if (squidStatus?.includes('DENIED')) return 'DENIED';
+
+  // Squid's result code is what says whether the proxy served the request at
+  // all, and that is the question this column answers. NONE_* means it never
+  // forwarded or tunnelled anything - a malformed request from a scanner
+  // (NONE_NONE/400 error:invalid-request), a connection that ended before the
+  // headers (NONE_NONE/000), a TLS handshake against the plaintext port.
+  //
+  // Reading the HTTP status alone called all of those "Allowed", which in a
+  // tool for access control is the one wrong thing to say about a request that
+  // was never allowed at all.
+  if (squidStatus !== null && squidStatus.startsWith('NONE')) return 'ERROR';
+
+  // A 5xx from the origin travelled through an allowed request, but an operator
+  // scanning a traffic log for problems wants it visible, and the status column
+  // still shows which one it was.
   if (httpStatus !== null && httpStatus >= 500) return 'ERROR';
+
+  // Without a result code - a v1 line - the status is all there is.
+  if (squidStatus === null && httpStatus !== null && httpStatus >= 400) return 'ERROR';
+
   return 'ALLOWED';
 }
 

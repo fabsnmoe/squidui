@@ -4,6 +4,7 @@ import {
   Card,
   DescriptionList,
   InlineAlert,
+  Input,
   Page,
   PageHeader,
   PasswordInput,
@@ -27,7 +28,10 @@ export function SettingsPage(): JSX.Element {
 
   const settings = useQuery<{
     traffic: { logUrls: boolean; retentionDays: number; retentionConfigurableAt: string };
+    accessLease: { leaseDays: number; renewalWindowDays: number };
   }>((signal) => api('/settings', { signal }));
+  const [lease, setLease] = useState<{ leaseDays: string; renewalWindowDays: string } | null>(null);
+  const [leaseBusy, setLeaseBusy] = useState(false);
 
   const setTrafficLogUrls = async (enabled: boolean): Promise<void> => {
     try {
@@ -176,6 +180,78 @@ export function SettingsPage(): JSX.Element {
               considerably more detailed usage data about individual people.
             </InlineAlert>
           )}
+        </div>
+      </Card>
+
+      <Card
+        title="Directory access"
+        description="How long proxy access lasts for people who signed in with an identity provider."
+      >
+        <div className="scp-stack">
+          <InlineAlert tone="info" title="Why access expires at all">
+            An identity provider cannot be asked whether a user still exists, so access is granted as a lease that
+            only a sign-in renews — and a sign-in re-checks the claim. Someone removed from the directory can no
+            longer sign in, so their proxy access ends when the lease runs out.
+          </InlineAlert>
+          <Input
+            label="Lease length in days"
+            type="number"
+            value={lease?.leaseDays ?? String(settings.data?.accessLease.leaseDays ?? 90)}
+            hint="How long access lasts after each sign-in. Shorter means a smaller window in which a removed user keeps access."
+            onChange={(event) =>
+              setLease({
+                leaseDays: event.target.value,
+                renewalWindowDays:
+                  lease?.renewalWindowDays ?? String(settings.data?.accessLease.renewalWindowDays ?? 5),
+              })
+            }
+          />
+          <Input
+            label="Renewal possible from, in days before expiry"
+            type="number"
+            value={lease?.renewalWindowDays ?? String(settings.data?.accessLease.renewalWindowDays ?? 5)}
+            hint="Signing in earlier than this records the check but does not extend the lease."
+            onChange={(event) =>
+              setLease({
+                leaseDays: lease?.leaseDays ?? String(settings.data?.accessLease.leaseDays ?? 90),
+                renewalWindowDays: event.target.value,
+              })
+            }
+          />
+          <Button
+            variant="primary"
+            disabled={!lease}
+            loading={leaseBusy}
+            onClick={() => {
+              if (!lease) return;
+              setLeaseBusy(true);
+              void api('/settings', {
+                method: 'PATCH',
+                body: {
+                  leaseDays: Number(lease.leaseDays),
+                  renewalWindowDays: Number(lease.renewalWindowDays),
+                },
+              })
+                .then(() => {
+                  toast.success('Access policy saved', 'It applies at the next sign-in.');
+                  setLease(null);
+                  settings.reload();
+                })
+                .catch((error: unknown) =>
+                  toast.error(
+                    'Could not save',
+                    error instanceof ApiError ? error.message : 'Unexpected error.',
+                  ),
+                )
+                .finally(() => setLeaseBusy(false));
+            }}
+          >
+            Save access policy
+          </Button>
+          <p className="scp-hint">
+            Shortening the lease does not shorten leases already granted; those keep their date until the next
+            renewal.
+          </p>
         </div>
       </Card>
 

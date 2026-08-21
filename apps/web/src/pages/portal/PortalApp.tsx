@@ -5,10 +5,12 @@ import {
   Card,
   DataTable,
   DescriptionList,
+  Dialog,
   ErrorState,
   Icon,
   IconButton,
   InlineAlert,
+  Input,
   MetricCard,
   Page,
   PageHeader,
@@ -104,6 +106,176 @@ export function PortalApp(): JSX.Element {
 
 /* -------------------------------------------------------------------------- */
 
+interface ProxyAccountState {
+  managed: boolean;
+  hasAccount: boolean;
+  username: string;
+  passwordUpdatedAt?: string | null;
+  notice?: string;
+  lease?: {
+    days: number;
+    renewalWindowDays: number;
+    validUntil: string | null;
+    renewableFrom: string | null;
+    inRenewalWindow: boolean;
+    noticeDue: boolean;
+  };
+}
+
+const daysUntil = (iso: string): number =>
+  Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000));
+
+/**
+ * The bridge between the two identity planes (ADR 0004).
+ *
+ * Signing in with an organisational identity proves who someone is. It does not
+ * give Squid anything to check, because the proxy speaks HTTP Basic and cannot
+ * consume a token. So the person sets a proxy password here, and that is what
+ * the proxy will ask for.
+ */
+function ProxyAccountSection(): JSX.Element | null {
+  const toast = useToast();
+  const account = useQuery<ProxyAccountState>((signal) => api('/portal/proxy-account', { signal }));
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const data = account.data;
+  // Local proxy users already are their own account; nothing to provision.
+  if (!data || !data.managed) return null;
+
+  const submit = async (): Promise<void> => {
+    setError(null);
+    if (password !== confirmation) {
+      setError('The two passwords do not match.');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (data.hasAccount) {
+        await api('/portal/proxy-account/password', { method: 'POST', body: { password } });
+        toast.success('Proxy password changed', 'Use it the next time the proxy asks for credentials.');
+      } else {
+        await api('/portal/proxy-account', {
+          method: 'POST',
+          body: { username: username || data.username, password },
+        });
+        toast.success('Proxy account created', 'You can now authenticate against the proxy.');
+      }
+      setPassword('');
+      setConfirmation('');
+      account.reload();
+    } catch (cause) {
+      const message = cause instanceof ApiError ? cause.message : 'Unexpected error.';
+      const violations =
+        cause instanceof ApiError && Array.isArray(cause.details)
+          ? (cause.details as Array<{ message?: string }>).map((entry) => entry.message).filter(Boolean)
+          : [];
+      setError(violations.length > 0 ? `${message} ${violations.join(' ')}` : message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const lease = data.lease;
+  const acknowledge = async (): Promise<void> => {
+    try {
+      await api('/portal/proxy-account/acknowledge', { method: 'POST' });
+    } finally {
+      account.reload();
+    }
+  };
+
+  return (
+    <>
+      {/* Told once when access is granted, and again when it is about to run
+          out. There is no mail in this product, so the portal is the only
+          place this can reach a person. */}
+      <Dialog
+        open={Boolean(lease?.noticeDue && lease?.validUntil)}
+        onClose={() => void acknowledge()}
+        title={lease?.inRenewalWindow ? 'Your proxy access is about to expire' : 'Your proxy access is time limited'}
+        actions={
+          <Button variant="primary" onClick={() => void acknowledge()}>
+            Understood
+          </Button>
+        }
+      >
+        {lease?.validUntil ? (
+          <>
+            <p>
+              Your access is valid until <strong>{formatDateTime(lease.validUntil)}</strong>, which is in{' '}
+              <strong>{daysUntil(lease.validUntil)} day(s)</strong>.
+            </p>
+            <p className="scp-secondary">
+              Sign in here again to extend it by another {lease.days} days. Renewal is possible from{' '}
+              {lease.renewalWindowDays} day(s) before it expires. Signing in re-checks with your organisation that
+              you are still entitled to proxy access, which is why it cannot be extended automatically.
+            </p>
+            <p className="scp-secondary">
+              If it does expire, the proxy stops accepting your credentials until you sign in here again.
+            </p>
+          </>
+        ) : null}
+      </Dialog>
+
+    <Card
+      title={data.hasAccount ? 'Proxy password' : 'Create your proxy account'}
+      description={
+        data.hasAccount
+          ? 'The credentials the proxy asks for when you browse.'
+          : 'You are signed in, but the proxy cannot check a sign-in token. Choose the credentials it will ask for.'
+      }
+    >
+      <InlineAlert tone="info" title="This is not your organisational password">
+        {data.notice ??
+          'This password is used only by the proxy. It is separate from your organisational password and is never checked against it.'}
+      </InlineAlert>
+      {error ? (
+        <InlineAlert tone="danger" title="Could not save">
+          {error}
+        </InlineAlert>
+      ) : null}
+      {data.hasAccount ? (
+        <p className="scp-secondary">
+          Your proxy username is <span className="scp-mono">{data.username}</span>.
+        </p>
+      ) : (
+        <Input
+          label="Proxy username"
+          value={username || data.username}
+          hint="Suggested from your account. It has to be unique across the proxy."
+          onChange={(event) => setUsername(event.target.value)}
+        />
+      )}
+      <PasswordInput
+        label={data.hasAccount ? 'New proxy password' : 'Proxy password'}
+        value={password}
+        onChange={(event) => setPassword(event.target.value)}
+      />
+      <PasswordInput
+        label="Repeat password"
+        value={confirmation}
+        onChange={(event) => setConfirmation(event.target.value)}
+      />
+      <Button variant="primary" loading={busy} disabled={password.length === 0} onClick={() => void submit()}>
+        {data.hasAccount ? 'Change proxy password' : 'Create proxy account'}
+      </Button>
+      {lease?.validUntil ? (
+        <p className="scp-hint">
+          Access valid until {formatDateTime(lease.validUntil)} ({daysUntil(lease.validUntil)} day(s)).
+          {lease.inRenewalWindow
+            ? ' Sign out and sign in again to extend it.'
+            : ` It can be extended from ${lease.renewalWindowDays} day(s) before that.`}
+        </p>
+      ) : null}
+    </Card>
+    </>
+  );
+}
+
 function AccountSection(): JSX.Element {
   const toast = useToast();
   const profile = useQuery<Profile>((signal) => api('/portal/me', { signal }));
@@ -156,6 +328,8 @@ function AccountSection(): JSX.Element {
 
   return (
     <>
+      {/* Renders nothing for a local proxy user, who already has an account. */}
+      <ProxyAccountSection />
       <Card title="Account" description="How the proxy knows you.">
         <DescriptionList
           items={[

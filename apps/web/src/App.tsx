@@ -16,6 +16,8 @@ import { AccessRulesPage } from './pages/policies/AccessRulesPage.js';
 import { NetworksPage } from './pages/policies/NetworksPage.js';
 import { ListenersPage } from './pages/ListenersPage.js';
 import { NodeGroupsPage } from './pages/NodeGroupsPage.js';
+import { AuthCallbackPage } from './pages/AuthCallbackPage.js';
+import { IdentityProvidersPage } from './pages/system/IdentityProvidersPage.js';
 import { NodesPage } from './pages/NodesPage.js';
 import { ConfigurationReviewPage } from './pages/ConfigurationReviewPage.js';
 import { AuditPage } from './pages/AuditPage.js';
@@ -46,6 +48,16 @@ export function App(): JSX.Element {
       <div style={{ display: 'grid', placeItems: 'center', height: '100vh' }}>
         <span className="scp-spinner" style={{ width: 24, height: 24 }} aria-label="Loading" />
       </div>
+    );
+  }
+
+  // The identity provider sends the browser back here before any session
+  // exists, so this route has to be reachable ahead of both shells.
+  if (window.location.pathname === '/auth/callback') {
+    return (
+      <Routes>
+        <Route path="*" element={<AuthCallbackPage />} />
+      </Routes>
     );
   }
 
@@ -179,6 +191,14 @@ export function App(): JSX.Element {
           element={
             <Guard permission="AUDIT_READ">
               <AuditPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="system/identity-providers"
+          element={
+            <Guard permission="CP_USER_READ">
+              <IdentityProvidersPage />
             </Guard>
           }
         />

@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Icon, InlineAlert, Input, PasswordInput } from '@scp/ui';
-import { ApiError } from '../lib/api.js';
+import { ApiError, api } from '../lib/api.js';
 import { useSession } from '../lib/session.js';
 import { usePortal } from '../lib/portal.js';
 import { useTheme } from '../lib/theme.js';
@@ -21,10 +21,46 @@ export function LoginPage(): JSX.Element {
   const { theme, toggle } = useTheme();
 
   const [mode, setMode] = useState<Mode>('control-plane');
+  // Which identity providers may open this door. Read before anyone has signed
+  // in, so the endpoint exposes nothing beyond a name and a key.
+  const [providers, setProviders] = useState<Array<{ key: string; name: string }>>([]);
+  const [redirecting, setRedirecting] = useState<string | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const audience = mode === 'control-plane' ? 'control-plane' : 'proxy-portal';
+    let cancelled = false;
+    api<{ items: Array<{ key: string; name: string }> }>(`/auth/oidc/providers?audience=${audience}`)
+      .then((result) => {
+        if (!cancelled) setProviders(result.items);
+      })
+      // A control plane without OIDC configured is the normal case, so a
+      // failure here hides the buttons rather than showing an error.
+      .catch(() => {
+        if (!cancelled) setProviders([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode]);
+
+  const startOidc = async (providerKey: string): Promise<void> => {
+    setRedirecting(providerKey);
+    try {
+      const audience = mode === 'control-plane' ? 'control-plane' : 'proxy-portal';
+      const { authorizationUrl } = await api<{ authorizationUrl: string }>('/auth/oidc/start', {
+        method: 'POST',
+        body: { providerKey, audience },
+      });
+      window.location.assign(authorizationUrl);
+    } catch (error) {
+      setRedirecting(null);
+      setError(error instanceof ApiError ? error.message : 'Could not reach the identity provider.');
+    }
+  };
 
   const onSubmit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -112,6 +148,26 @@ export function LoginPage(): JSX.Element {
             </p>
 
             {error ? <InlineAlert tone="danger" title="Sign in failed">{error}</InlineAlert> : null}
+
+            {providers.length > 0 ? (
+              <>
+                {providers.map((provider) => (
+                  <Button
+                    key={provider.key}
+                    type="button"
+                    variant="secondary"
+                    size="lg"
+                    loading={redirecting === provider.key}
+                    onClick={() => void startOidc(provider.key)}
+                  >
+                    Continue with {provider.name}
+                  </Button>
+                ))}
+                <div className="scp-hint" style={{ textAlign: 'center' }}>
+                  or sign in with a local account
+                </div>
+              </>
+            ) : null}
 
             <Input
               label="Username"

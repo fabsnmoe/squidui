@@ -364,6 +364,103 @@ protection you have.
 
 ---
 
+## Signing in with Keycloak or another OIDC provider
+
+**Squid cannot use OIDC.** Proxy authentication is HTTP Basic: a client sends a
+username and a password and a helper answers yes or no. There is no browser in
+that exchange and no way to redeem a token. OIDC therefore authenticates
+*people in the web interface*, never traffic.
+
+The bridge is explicit. A person signs in with their organisational identity and
+provisions themselves a proxy account with a password of their choosing. That
+password reaches Squid through the same NCSA file as any local proxy user.
+
+### Configure the provider
+
+`System -> Identity providers -> Add provider`:
+
+| Field | Keycloak |
+| --- | --- |
+| Issuer URL | `https://keycloak.example.de/realms/<realm>` |
+| Client ID | the client you created |
+| Client secret | for a confidential client; leave empty for a public one (PKCE is always used) |
+| Username claim | `preferred_username` |
+
+The provider's issuer URL has to be resolvable **from the user's browser as well
+as from the control plane**, because the browser is redirected to it. A hostname
+that only exists inside a container network works for the server and leaves users
+staring at a failed page.
+
+The page shows the **redirect URI** to register with the provider. Set
+`PUBLIC_BASE_URL` in `.env` when the control plane runs behind a reverse proxy,
+otherwise it is derived from the request and will not match what the provider
+expects.
+
+### Two doors, one provider
+
+```text
+May sign in to the control plane   -> full Administrator, gated by one claim
+May sign in to the portal          -> may provision a proxy account
+```
+
+Admission is a single claim comparison per door, for example
+`realm_access.roles` containing `squid-admin`. An empty claim admits every
+authenticated user of that provider.
+
+There is no partial permission mapping: anyone admitted through the admin door
+is a full administrator. That is deliberate - see
+[ADR 0004](docs/architecture/adr/0004-oidc-identity.md). Use local accounts and
+roles where finer control is needed.
+
+### What the user does
+
+1. Signs in at the portal with **Continue with Keycloak**.
+2. Chooses a proxy username and a proxy password.
+3. Uses those credentials when the proxy asks - **not** the Keycloak password,
+   which the proxy has no way to check.
+
+Their own statistics and access profile are visible in the portal as for any
+other proxy user.
+
+### When someone loses access
+
+An identity provider cannot be asked whether a user still exists, so access is
+handled with two mechanisms rather than one.
+
+**A refused sign-in ends access immediately.** If someone signs in and the
+required claim is gone, that is evidence the directory took their access away.
+The linked proxy account is disabled at that moment.
+
+**Access is a lease.** Each proxy account is valid for a limited time - 90 days
+by default - and only a successful sign-in renews it, because a sign-in
+re-checks the claim against the provider. Someone deleted in Keycloak can no
+longer sign in, so their proxy access ends when the lease runs out.
+
+Both numbers are configured under `System -> Settings -> Directory access`:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Lease length | 90 days | How long access lasts after each sign-in |
+| Renewal window | 5 days | How early a sign-in extends it |
+
+The lease is a fixed term, not a sliding one: signing in earlier records the
+check but does not move the date. The portal tells the user when access was
+granted and again when the renewal window opens, and shows the expiry date
+throughout - there is no mail in this product, so the portal is the only channel
+that reaches them.
+
+Accounts are **disabled, not deleted**. Statistics and the audit trail survive,
+and someone whose access is restored is one sign-in away from working again. An
+account an administrator disabled by hand is never reactivated this way - only
+one the control plane disabled itself.
+
+**Revocation takes up to five minutes to reach the proxy.** Squid trusts a
+successful credential check for `credentialsttl`, so a disabled account keeps
+working until that cache expires. This product emits five minutes; the Squid
+default of two hours meant revoking access did not revoke access.
+
+---
+
 ## Configuration
 
 Everything is configured through `.env`. Full template in
