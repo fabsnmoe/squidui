@@ -386,6 +386,11 @@ password reaches Squid through the same NCSA file as any local proxy user.
 | Client secret | for a confidential client; leave empty for a public one (PKCE is always used) |
 | Username claim | `preferred_username` |
 
+The provider's issuer URL has to be resolvable **from the user's browser as well
+as from the control plane**, because the browser is redirected to it. A hostname
+that only exists inside a container network works for the server and leaves users
+staring at a failed page.
+
 The page shows the **redirect URI** to register with the provider. Set
 `PUBLIC_BASE_URL` in `.env` when the control plane runs behind a reverse proxy,
 otherwise it is derived from the request and will not match what the provider

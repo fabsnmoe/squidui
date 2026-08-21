@@ -1,8 +1,11 @@
 # ADR 0004 — OIDC for control plane administrators and portal users
 
-Status: proposed
+Status: accepted
 Date: 2026-08-20
 Requested by: product owner
+Verified: `scripts/verify-oidc.sh`, 37 checks against a real Keycloak - the
+authorisation code flow driven for real, and every access decision confirmed by
+a request through Squid rather than by reading the database.
 
 ## Context
 
