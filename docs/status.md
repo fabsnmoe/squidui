@@ -360,3 +360,45 @@ correctly, and the product was close to unusable for its actual purpose. Nothing
 in this repository types into a form. Until something does, this class of defect
 is invisible here - which is an argument for the interaction tests in phase 14
 being real tests, not screenshots.
+
+
+## Defect nine: a revoked user kept getting through the proxy
+
+Found by `verify-oidc.sh` while proving that deprovisioning deprovisions.
+
+**Symptom.** The account was disabled in the database, the audit entry was
+there, the agent had deployed a configuration without that user in the password
+file - and the person's requests still returned 200.
+
+**Cause.** `auth_param basic credentialsttl 2 hours`, inherited as a default
+nobody had questioned. Squid trusts a successful credential check for that long
+and does not consult the helper again, so revoking access had no effect for up
+to two hours on anyone already using the proxy.
+
+**Fix.** Five minutes, as a named constant with the reasoning next to it, and a
+regression test that fails if the value is ever expressed in hours again.
+
+**Lesson worth keeping.** Every layer above Squid was correct: the row, the
+audit entry, the generated file, the deployment. The verification only found it
+because it asked the proxy rather than the database. A test that had asserted
+"the user is disabled" would have passed while the product leaked access.
+
+## Defect ten: the admission claim was read from the wrong token
+
+**Symptom.** A correctly configured Keycloak refused every administrator with
+"not permitted to administer this control plane".
+
+**Cause.** The implementation read claims from the ID token. Keycloak puts
+`realm_access.roles` in the access token; its realm roles mapper ships with
+"Add to ID token" off, and other providers behave similarly for role and group
+claims.
+
+**Fix.** The claim is looked up in the ID token, then the access token, then
+UserInfo - with the access token verified for signature, issuer, expiry and
+matching subject before anything is read out of it. Identity still comes from
+the ID token alone.
+
+**Lesson worth keeping.** This was not a bug in the code as written; it was a
+wrong belief about how identity providers behave, and only a real provider could
+correct it. No unit test would have held the right expectation, because the
+expectation itself was the defect.

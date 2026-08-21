@@ -436,3 +436,37 @@ describe('compiler - identity rules next to a listener without authentication', 
     expect(ruleLine).toBe('http_access allow all');
   });
 });
+
+describe('compiler - how long a revoked account keeps working', () => {
+  /*
+   * Found by revoking a user against a real Squid and watching them still get
+   * through. Squid caches a successful credential check for `credentialsttl`,
+   * which was inherited as two hours, so disabling an account had no effect on
+   * anyone already using the proxy until that cache expired. For a product
+   * whose purpose is access control, that window is a security property.
+   */
+  it('does not let a disabled account keep working for hours', () => {
+    const result = compile(
+      createEmptyIr({
+        authentication: { mode: 'REQUIRED', realm: 'Squid', providers: [localProvider], localGroupMembers: {} },
+        defaultAccess: 'DENY',
+        listeners: [
+          { id: 'l', key: 'default', name: 'Default', address: '0.0.0.0', port: 3128, mode: 'FORWARD', enabled: true, authentication: 'REQUIRED', inheritsAuthentication: false, sourceNetworks: [] },
+        ],
+        rules: [rule({ id: 'r10', position: 10, identity: { kind: 'AUTHENTICATED' } })],
+      }),
+    );
+
+    const line = result.squidConf
+      .split(String.fromCharCode(10))
+      .find((entry) => entry.startsWith('auth_param basic credentialsttl'));
+    expect(line).toBeDefined();
+    expect(line).not.toContain('hours');
+
+    const minutes = Number(line?.match(/credentialsttl (\d+) minutes/)?.[1] ?? Number.NaN);
+    expect(minutes).toBeGreaterThan(0);
+    // Ten minutes is already a long time to keep serving someone whose access
+    // was revoked.
+    expect(minutes).toBeLessThanOrEqual(10);
+  });
+});

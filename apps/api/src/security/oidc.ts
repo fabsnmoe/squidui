@@ -18,6 +18,7 @@ export interface OidcDiscovery {
   authorization_endpoint: string;
   token_endpoint: string;
   jwks_uri: string;
+  userinfo_endpoint?: string;
   end_session_endpoint?: string;
 }
 
@@ -34,13 +35,27 @@ export interface IdTokenClaims {
   [claim: string]: unknown;
 }
 
+/**
+ * One key from the provider's JWKS. Declared here rather than taken from the
+ * DOM lib, which this package does not include - and a signing key type is
+ * something a security path should state explicitly anyway.
+ */
+interface JwksKey {
+  kid?: string;
+  kty?: string;
+  alg?: string;
+  use?: string;
+  n?: string;
+  e?: string;
+}
+
 /** Clock skew tolerated when checking `exp`. Providers and hosts drift. */
 const CLOCK_SKEW_SECONDS = 60;
 const DISCOVERY_TTL_MS = 10 * 60_000;
 const HTTP_TIMEOUT_MS = 10_000;
 
 const discoveryCache = new Map<string, { fetchedAt: number; document: OidcDiscovery }>();
-const jwksCache = new Map<string, { fetchedAt: number; keys: JsonWebKey[] }>();
+const jwksCache = new Map<string, { fetchedAt: number; keys: JwksKey[] }>();
 
 function base64Url(input: Buffer): string {
   return input.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -86,11 +101,11 @@ export async function discover(issuer: string): Promise<OidcDiscovery> {
   return document;
 }
 
-async function jwksFor(jwksUri: string, forceRefresh = false): Promise<JsonWebKey[]> {
+async function jwksFor(jwksUri: string, forceRefresh = false): Promise<JwksKey[]> {
   const cached = jwksCache.get(jwksUri);
   if (!forceRefresh && cached && Date.now() - cached.fetchedAt < DISCOVERY_TTL_MS) return cached.keys;
 
-  const { keys } = await fetchJson<{ keys: JsonWebKey[] }>(jwksUri);
+  const { keys } = await fetchJson<{ keys: JwksKey[] }>(jwksUri);
   jwksCache.set(jwksUri, { fetchedAt: Date.now(), keys });
   return keys;
 }
@@ -192,7 +207,7 @@ export async function verifyIdToken(
 
   const matches = async (refresh: boolean): Promise<boolean> => {
     const keys = await jwksFor(expected.discovery.jwks_uri, refresh);
-    const candidates = header.kid ? keys.filter((key) => (key as { kid?: string }).kid === header.kid) : keys;
+    const candidates = header.kid ? keys.filter((key) => key.kid === header.kid) : keys;
     return candidates.some((jwk) => {
       try {
         const key = createPublicKey({ key: jwk as never, format: 'jwk' });
@@ -228,6 +243,73 @@ export async function verifyIdToken(
   }
 
   return claims;
+}
+
+/**
+ * Role claims for the same subject, from the access token or UserInfo.
+ *
+ * Keycloak puts `realm_access.roles` in the **access token** and not in the ID
+ * token: the realm roles mapper ships with "Add to ID token" switched off. Most
+ * other providers behave similarly for group and role claims. Reading only the
+ * ID token would therefore refuse every correctly configured Keycloak, and
+ * telling operators to go and flip a mapper would be blaming them for our
+ * assumption.
+ *
+ * Identity still comes from the ID token alone. Only the attributes used for
+ * admission are looked up here, and only from a source that is itself verified:
+ * an access token is accepted when it is a JWT signed by the same issuer, has
+ * not expired, and names the same subject. A token for someone else is refused
+ * even if it is otherwise valid.
+ */
+export async function additionalClaims(
+  discovery: OidcDiscovery,
+  accessToken: string | undefined,
+  subject: string,
+): Promise<Record<string, unknown>> {
+  if (!accessToken) return {};
+
+  const parts = accessToken.split('.');
+  if (parts.length === 3) {
+    try {
+      const [headerSegment, payloadSegment, signatureSegment] = parts as [string, string, string];
+      const header = JSON.parse(decodeSegment(headerSegment).toString('utf8')) as { alg?: string; kid?: string };
+      const algorithm = RSA_ALGORITHMS[header.alg ?? ''];
+      if (algorithm) {
+        const keys = await jwksFor(discovery.jwks_uri);
+        const candidates = header.kid ? keys.filter((key) => key.kid === header.kid) : keys;
+        const signed = Buffer.from(`${headerSegment}.${payloadSegment}`, 'utf8');
+        const signature = decodeSegment(signatureSegment);
+        const valid = candidates.some((jwk) => {
+          try {
+            return verifySignature(algorithm, signed, createPublicKey({ key: jwk as never, format: 'jwk' }), signature);
+          } catch {
+            return false;
+          }
+        });
+        if (valid) {
+          const claims = JSON.parse(decodeSegment(payloadSegment).toString('utf8')) as Record<string, unknown>;
+          const issuerMatches =
+            String(claims.iss ?? '').replace(/\/+$/, '') === discovery.issuer.replace(/\/+$/, '');
+          const fresh =
+            typeof claims.exp === 'number' && claims.exp + CLOCK_SKEW_SECONDS >= Math.floor(Date.now() / 1000);
+          if (issuerMatches && fresh && claims.sub === subject) return claims;
+        }
+      }
+    } catch {
+      /* An opaque or unreadable access token is not an error; UserInfo is next. */
+    }
+  }
+
+  // Opaque access token, or one we could not verify: ask the provider directly.
+  if (!discovery.userinfo_endpoint) return {};
+  try {
+    const claims = await fetchJson<Record<string, unknown>>(discovery.userinfo_endpoint, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return claims.sub === subject ? claims : {};
+  } catch {
+    return {};
+  }
 }
 
 /* -------------------------------------------------------------------------- */

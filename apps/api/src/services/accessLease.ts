@@ -15,7 +15,7 @@ import type { Db } from '../db/pool.js';
 
 export async function expireStaleLeases(db: Db): Promise<number> {
   const { rows } = await db.query<{ id: string; username: string; valid_until: Date }>(
-    `update proxy_users set status = 'DISABLED', updated_at = now()
+    `update proxy_users set status = 'DISABLED', disabled_reason = 'LEASE_EXPIRED', updated_at = now()
      where source = 'OIDC' and status = 'ACTIVE'
        and valid_until is not null and valid_until < now()
      returning id, username, valid_until`,

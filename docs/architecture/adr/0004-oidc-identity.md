@@ -101,6 +101,22 @@ The break-glass local administrator stays (PO decision, phase 2). An identity
 provider that is unreachable must never lock every administrator out of the
 control plane, and the local proxy users continue to work unchanged.
 
+### 7. Where the admission claim is read
+
+Verifying against a real Keycloak showed the assumption behind the first
+implementation was wrong. Keycloak puts `realm_access.roles` in the **access
+token**, not the ID token: its realm roles mapper ships with "Add to ID token"
+switched off, and most providers treat role and group claims the same way.
+Reading only the ID token therefore refuses every correctly configured Keycloak,
+and telling operators to go and change a mapper would be blaming them for our
+assumption.
+
+Identity still comes from the ID token alone. The admission claim is looked up
+in the ID token first, then in the access token, then at the UserInfo endpoint -
+and the access token is only consulted after being verified the same way: signed
+by the same issuer, unexpired, and naming the same subject. A valid token
+belonging to somebody else is refused.
+
 ## Security
 
 - **Authorisation code with PKCE.** The state, nonce and code verifier are
@@ -114,6 +130,15 @@ control plane, and the local proxy users continue to work unchanged.
   A portal user cannot arrive holding a control plane token.
 - **Redirect targets are fixed** by the control plane's own base URL, never
   taken from the request, so the flow cannot be pointed at another host.
+- **Revocation takes effect within Squid's credential cache**, not instantly.
+  Squid trusts a successful credential check for `credentialsttl`, which this
+  product now emits as five minutes; it was two hours by inheritance, and a
+  revoked user was measured still getting through. Disabling an account is
+  therefore effective within five minutes, and that number is a security
+  property rather than a tuning knob.
+- **An account disabled by an administrator is never reactivated** by a later
+  sign-in. Only accounts this control plane disabled itself - claim withdrawn,
+  lease expired - come back, which is why the reason is recorded.
 
 ## Consequences
 

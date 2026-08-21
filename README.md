@@ -445,7 +445,14 @@ throughout - there is no mail in this product, so the portal is the only channel
 that reaches them.
 
 Accounts are **disabled, not deleted**. Statistics and the audit trail survive,
-and someone whose access is restored is one sign-in away from working again.
+and someone whose access is restored is one sign-in away from working again. An
+account an administrator disabled by hand is never reactivated this way - only
+one the control plane disabled itself.
+
+**Revocation takes up to five minutes to reach the proxy.** Squid trusts a
+successful credential check for `credentialsttl`, so a disabled account keeps
+working until that cache expires. This product emits five minutes; the Squid
+default of two hours meant revoking access did not revoke access.
 
 ---
 

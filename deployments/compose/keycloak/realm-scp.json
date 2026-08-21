@@ -1,0 +1,68 @@
+{
+  "realm": "scp",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginTheme": "keycloak",
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      { "name": "squid-admin", "description": "May administer the Squid control plane" },
+      { "name": "squid-user", "description": "May use the self-service portal and hold a proxy account" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "squid-control-plane",
+      "name": "Squid Control Plane",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "verification-client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8080/auth/callback",
+        "http://web/auth/callback",
+        "http://127.0.0.1:8080/auth/callback"
+      ],
+      "webOrigins": ["*"],
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "oidc-admin",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "oidc-admin@example.internal",
+      "firstName": "Ola",
+      "lastName": "Admin",
+      "credentials": [{ "type": "password", "value": "oidc-admin-password", "temporary": false }],
+      "realmRoles": ["squid-admin", "squid-user"]
+    },
+    {
+      "username": "oidc-user",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "oidc-user@example.internal",
+      "firstName": "Uli",
+      "lastName": "User",
+      "credentials": [{ "type": "password", "value": "oidc-user-password", "temporary": false }],
+      "realmRoles": ["squid-user"]
+    },
+    {
+      "username": "oidc-outsider",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "oidc-outsider@example.internal",
+      "firstName": "Ossi",
+      "lastName": "Outsider",
+      "credentials": [{ "type": "password", "value": "oidc-outsider-password", "temporary": false }],
+      "realmRoles": []
+    }
+  ]
+}

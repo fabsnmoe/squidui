@@ -80,6 +80,45 @@ services:
       retries: 30
       start_period: 20s
 
+  # A real identity provider, seeded from a realm export so the fixture is
+  # reproducible. KC_HOSTNAME pins the issuer: Keycloak otherwise derives it
+  # from the request, and the control plane refuses a discovery document that
+  # names a different issuer than the one configured - correctly, but it would
+  # look like a bug here.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: kcadmin-password
+      KC_HOSTNAME: http://keycloak:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/realm-scp.json:/opt/keycloak/data/import/realm-scp.json:ro
+    networks:
+      - frontend
+      - proxytest
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1
+Host: localhost
+Connection: close
+
+' >&3 && grep -q '\"status\": \"UP\"' <&3"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # The control plane has to reach Keycloak, and the OIDC redirect must be the
+  # value registered in the realm rather than one derived from the request.
+  api:
+    environment:
+      PUBLIC_BASE_URL: http://localhost:8080
+
   # Idle container used to run curl against the proxy.
   client:
     image: curlimages/curl:latest

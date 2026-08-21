@@ -5,6 +5,7 @@ import { actorOf, badRequest, conflict, notFound, requirePermission, unauthorize
 import { issueToken, type PortalClaims, type SessionClaims, type TokenAudience } from '../security/jwt.js';
 import { decryptSecret, encryptSecret } from '../security/secrets.js';
 import {
+  additionalClaims,
   admits,
   buildAuthorizationUrl,
   createPkcePair,
@@ -365,11 +366,18 @@ export async function registerOidcRoutes(app: FastifyInstance, context: AppConte
       clientId: provider.client_id,
       nonce: login.nonce,
     });
-    const username = usernameFrom(claims, provider.username_claim);
+
+    // Role and group claims usually live in the access token rather than the
+    // ID token - Keycloak ships its realm roles mapper that way. The ID token
+    // still decides who this is; the extra source only contributes attributes,
+    // and only after being verified for the same subject.
+    const extra = await additionalClaims(discovery, tokens.access_token, claims.sub);
+    const admission = { ...extra, ...claims } as typeof claims;
+    const username = usernameFrom(admission, provider.username_claim);
 
     return login.audience === 'control-plane'
-      ? signInAdministrator(request, provider, claims, username)
-      : signInPortalUser(request, provider, claims, username);
+      ? signInAdministrator(request, provider, admission, username)
+      : signInPortalUser(request, provider, admission, username);
   });
 
   /* --- the two doors ------------------------------------------------------ */
@@ -476,7 +484,8 @@ export async function registerOidcRoutes(app: FastifyInstance, context: AppConte
       // deprovisioning - the lease below is the half that covers people who
       // never come back at all (ADR 0004).
       const { rows: revoked } = await db.query<{ id: string; username: string }>(
-        `update proxy_users set status = 'DISABLED', updated_at = now()
+        `update proxy_users
+           set status = 'DISABLED', disabled_reason = 'CLAIM_WITHDRAWN', updated_at = now()
          where oidc_issuer = $1 and oidc_subject = $2 and status = 'ACTIVE'
          returning id, username`,
         [provider.issuer, claims.sub],
@@ -524,15 +533,18 @@ export async function registerOidcRoutes(app: FastifyInstance, context: AppConte
         `update proxy_users set
            last_verified_at = now(),
            valid_until = case when $2 then now() + ($3 || ' days')::interval else valid_until end,
-           -- An expired account comes back to life when the directory still
-           -- vouches for the person. Deprovisioning is meant to end access, not
-           -- to punish someone who returns.
-           status = case when $2 and status = 'DISABLED' then 'ACTIVE' else status end,
+           -- An account this control plane disabled comes back to life when the
+           -- directory vouches for the person again: deprovisioning is meant to
+           -- end access, not to punish someone who returns. An account an
+           -- administrator disabled stays disabled - reactivating that would
+           -- silently overrule their decision.
+           status = case when disabled_reason is not null then 'ACTIVE' else status end,
+           disabled_reason = null,
            updated_at = now()
          where id = $1`,
         [account.id, renews, String(policy.leaseDays)],
       );
-      if (renews && account.status !== 'ACTIVE') {
+      if (account.status !== 'ACTIVE') {
         await recordAudit(db, {
           action: 'PROXY_USER_UPDATED',
           actor: { id: null, username: 'system', sourceIp: request.ip },

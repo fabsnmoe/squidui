@@ -65,13 +65,18 @@ export async function buildServer(db: Db, config: AppConfig): Promise<FastifyIns
   // Expired access leases (ADR 0004). Every five minutes is far finer than the
   // lease itself, and a failure here must not take the API down - it retries on
   // the next tick.
-  const leaseSweep = setInterval(() => {
+  const runLeaseSweep = (): void => {
     void expireStaleLeases(context.db)
       .then((count) => {
         if (count > 0) app.log.info({ count }, 'disabled proxy accounts with an expired lease');
       })
       .catch((error: unknown) => app.log.error({ err: error }, 'lease sweep failed'));
-  }, 5 * 60_000);
+  };
+  // Once at startup, then on a schedule. An interval alone would leave expired
+  // access in place for the first five minutes after every restart, which is
+  // exactly when an operator is most likely to be watching.
+  runLeaseSweep();
+  const leaseSweep = setInterval(runLeaseSweep, 5 * 60_000);
   leaseSweep.unref();
   sweep.unref();
   app.addHook('onClose', async () => {

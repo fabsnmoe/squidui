@@ -214,13 +214,18 @@ export async function registerProxyIdentityRoutes(app: FastifyInstance, context:
     await withTransaction(db, async (client) => {
       await client.query(
         `update proxy_users
-         set display_name = $2, description = $3, status = $4, updated_at = now()
+         set display_name = $2, description = $3, status = $4,
+             -- An administrator touching the status owns that decision from now
+             -- on: clearing the reason stops a later sign-in from undoing it.
+             disabled_reason = case when $5::boolean then null else disabled_reason end,
+             updated_at = now()
          where id = $1`,
         [
           id,
           patch.displayName === undefined ? current.display_name : patch.displayName,
           patch.description === undefined ? current.description : patch.description,
           patch.status ?? current.status,
+          patch.status !== undefined,
         ],
       );
       if (patch.groupIds) await replaceGroups(client, id, patch.groupIds);
