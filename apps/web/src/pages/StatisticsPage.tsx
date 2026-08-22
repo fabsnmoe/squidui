@@ -347,6 +347,7 @@ export function StatisticsPage(): JSX.Element {
           >
             <TimeSeriesChart
               storageKey="statistics.requests"
+              bucketSeconds={data.granularitySeconds}
               caption="Requests over time, by outcome"
               points={points}
               series={[
@@ -364,6 +365,7 @@ export function StatisticsPage(): JSX.Element {
           >
             <TimeSeriesChart
               storageKey="statistics.bytes"
+              bucketSeconds={data.granularitySeconds}
               caption="Bytes delivered to and received from clients over time"
               points={bytePoints}
               format={bytes}

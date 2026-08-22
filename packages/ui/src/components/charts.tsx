@@ -1,4 +1,5 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { AXIS_TICKS, axisMax, axisTime, compactNumber, labelStride } from './chartScale.js';
 
 /**
  * The chart forms this product needs, drawn as inline SVG.
@@ -13,8 +14,10 @@ import { useEffect, useId, useState, type ReactNode } from 'react';
  * time entirely, so it answers a different question rather than the same one
  * differently, and the control says so.
  *
- * Series colours come from --chart-* tokens, chosen by running the palette
- * validator rather than by eye.
+ * Geometry is measured in real pixels rather than a scaled viewBox. A viewBox
+ * stretched to the container is simpler, but it scales the text with it, so the
+ * axis labels would be a different size on every screen - and it distorts
+ * stroke weights and turns markers into ellipses.
  */
 
 export interface SeriesDefinition {
@@ -37,26 +40,42 @@ export interface TimeSeriesChartProps {
   format?: (value: number) => string;
   /** Names what is being counted; read out to screen readers. */
   caption: string;
+  /** Bucket width, so the time labels can be as short as the range allows. */
+  bucketSeconds?: number;
   /** Remembers the reader's choice of form across visits. */
   storageKey?: string;
   defaultForm?: ChartForm;
 }
 
-/* Geometry. A fixed viewBox scaled uniformly, so strokes keep their weight and
- * circles stay circular - the reason not to stretch the box to the container. */
-const VIEW_W = 800;
-const VIEW_H = 260;
-const PAD = { top: 12, right: 12, bottom: 26, left: 12 };
-const PLOT_W = VIEW_W - PAD.left - PAD.right;
-const PLOT_H = VIEW_H - PAD.top - PAD.bottom;
-
+const HEIGHT = 280;
+/**
+ * Room for the value labels on the left and the time labels underneath.
+ *
+ * The left gutter was measured rather than guessed: at 11px in this typeface the
+ * widest label a byte axis produces is around 48px, so 66 leaves the label 58px
+ * and a margin instead of touching the edge.
+ */
+const PAD = { top: 14, right: 14, bottom: 30, left: 66 };
 /** A surface gap between adjacent fills, so neighbouring segments stay separable. */
 const GAP = 2;
 const MIN_SEGMENT = 1;
 /** Part-to-whole is legible at a glance only up to a handful of segments. */
 const MAX_SHARE_SEGMENTS = 6;
+const TICKS = Array.from({ length: AXIS_TICKS }, (_, index) => index / (AXIS_TICKS - 1));
+/** Roughly how many time labels fit before they start touching. */
+const X_LABEL_WIDTH = 88;
 
 const defaultFormat = (value: number): string => value.toLocaleString();
+
+interface Geometry {
+  width: number;
+  plotW: number;
+  plotH: number;
+  step: number;
+  base: number;
+  y: (value: number) => number;
+  centreX: (index: number) => number;
+}
 
 function shortTime(at: string): string {
   const date = new Date(at);
@@ -78,16 +97,29 @@ export function TimeSeriesChart({
   series,
   format = defaultFormat,
   caption,
+  bucketSeconds = 3600,
   storageKey,
   defaultForm = 'stacked',
 }: TimeSeriesChartProps): JSX.Element {
   const [form, setForm] = useState<ChartForm>(defaultForm);
   const [hover, setHover] = useState<number | null>(null);
   const [showTable, setShowTable] = useState(false);
+  const [width, setWidth] = useState(760);
+  const wrapper = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  // Restored after mount rather than during render: reading storage while
-  // rendering makes the first paint depend on something React cannot replay.
+  // Measured rather than assumed: the labels are drawn at a fixed pixel size, so
+  // the plot has to know its real width to place them.
+  useLayoutEffect(() => {
+    const element = wrapper.current;
+    if (!element) return undefined;
+    const measure = (): void => setWidth(Math.max(320, element.clientWidth));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!storageKey) return;
     const stored = window.localStorage.getItem(`scp.chart.${storageKey}`);
@@ -99,22 +131,31 @@ export function TimeSeriesChart({
     if (storageKey) window.localStorage.setItem(`scp.chart.${storageKey}`, next);
   };
 
-  if (points.length === 0) {
-    return <p className="scp-hint">Nothing was recorded in this range.</p>;
-  }
-
   const totals = points.map((point) => series.reduce((sum, entry) => sum + (point.values[entry.key] ?? 0), 0));
-  const stackedPeak = Math.max(1, ...totals);
+  const stackedPeak = Math.max(1, ...totals, 1);
   const singlePeak = Math.max(
     1,
     ...points.flatMap((point) => series.map((entry) => point.values[entry.key] ?? 0)),
+    1,
   );
-  // Stacked forms measure the total; the others measure the tallest series.
-  const peak = form === 'stacked' || form === 'area' ? stackedPeak : singlePeak;
+  const rawPeak = form === 'stacked' || form === 'area' ? stackedPeak : singlePeak;
+  // The axis tops out at a round multiple of a round step, so the four ticks
+  // below it are all numbers rather than rounding artefacts of the data.
+  // The axis tops out at a round multiple of a round step, so the four ticks
+  // below it are all numbers rather than rounding artefacts of the data.
+  const peak = axisMax(rawPeak);
 
-  const step = PLOT_W / points.length;
-  const y = (value: number): number => PAD.top + PLOT_H - (value / peak) * PLOT_H;
-  const centreX = (index: number): number => PAD.left + index * step + step / 2;
+  const plotW = Math.max(80, width - PAD.left - PAD.right);
+  const plotH = HEIGHT - PAD.top - PAD.bottom;
+  const geo: Geometry = {
+    width,
+    plotW,
+    plotH,
+    step: plotW / Math.max(1, points.length),
+    base: PAD.top + plotH,
+    y: (value) => PAD.top + plotH - (value / peak) * plotH,
+    centreX: (index) => PAD.left + (index + 0.5) * (plotW / Math.max(1, points.length)),
+  };
 
   const shareTotals = series.map((entry) => ({
     entry,
@@ -122,8 +163,11 @@ export function TimeSeriesChart({
   }));
   const grandTotal = shareTotals.reduce((sum, item) => sum + item.total, 0);
 
+  // Every nth label, so they never collide however many points there are.
+  const stride = labelStride(points.length, plotW, X_LABEL_WIDTH);
+
   return (
-    <div className="scp-chart">
+    <div className="scp-chart" ref={wrapper}>
       <div className="scp-chart-forms" role="group" aria-label={`Chart form for ${caption}`}>
         {FORMS.map((entry) => {
           const disabled = entry.value === 'share' && series.length > MAX_SHARE_SEGMENTS;
@@ -134,11 +178,7 @@ export function TimeSeriesChart({
               className="scp-chart-form"
               aria-pressed={form === entry.value}
               disabled={disabled}
-              title={
-                disabled
-                  ? `Too many series to read as slices; up to ${MAX_SHARE_SEGMENTS} works.`
-                  : entry.hint
-              }
+              title={disabled ? `Too many series to read as slices; up to ${MAX_SHARE_SEGMENTS} works.` : entry.hint}
               onClick={() => choose(entry.value)}
             >
               {entry.label}
@@ -147,9 +187,6 @@ export function TimeSeriesChart({
         })}
       </div>
 
-      {/* A share chart is not the same chart drawn differently: the horizontal
-          axis is gone. Saying so is cheaper than letting someone read a period
-          total as a trend. */}
       {form === 'share' ? (
         <p className="scp-hint">
           The whole selected period as one total. Time is not shown — switch to another form to see when it
@@ -157,82 +194,124 @@ export function TimeSeriesChart({
         </p>
       ) : null}
 
-      <svg
-        viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-        role="img"
-        aria-labelledby={titleId}
-        className="scp-chart-svg"
-      >
-        <title id={titleId}>{caption}</title>
+      {points.length === 0 ? (
+        <p className="scp-hint">Nothing was recorded in this range.</p>
+      ) : (
+        <svg
+          viewBox={`0 0 ${width} ${HEIGHT}`}
+          width={width}
+          height={HEIGHT}
+          role="img"
+          aria-labelledby={titleId}
+          className="scp-chart-svg"
+        >
+          <title id={titleId}>{caption}</title>
 
-        {form === 'share' ? (
-          <ShareArcs items={shareTotals} total={grandTotal} format={format} />
-        ) : (
-          <>
-            {/* Recessive reference lines: solid hairlines, one shade off the surface. */}
-            {[0.25, 0.5, 0.75, 1].map((fraction) => (
-              <line
-                key={fraction}
-                x1={PAD.left}
-                x2={PAD.left + PLOT_W}
-                y1={PAD.top + PLOT_H - PLOT_H * fraction}
-                y2={PAD.top + PLOT_H - PLOT_H * fraction}
-                stroke="var(--chart-grid)"
-                strokeWidth={1}
-              />
-            ))}
+          {form === 'share' ? (
+            <ShareArcs items={shareTotals} total={grandTotal} format={format} geo={geo} />
+          ) : (
+            <>
+              {/* Value axis. The line and its label are one thing: a gridline
+                  without a number is decoration. */}
+              {TICKS.map((fraction) => {
+                const value = peak * fraction;
+                return (
+                  <g key={fraction}>
+                    <line
+                      x1={PAD.left}
+                      x2={PAD.left + plotW}
+                      y1={geo.y(value)}
+                      y2={geo.y(value)}
+                      stroke="var(--chart-grid)"
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={PAD.left - 8}
+                      y={geo.y(value) + 4}
+                      textAnchor="end"
+                      className="scp-chart-axis-label"
+                    >
+                      {format === defaultFormat ? compactNumber(value) : format(value)}
+                    </text>
+                  </g>
+                );
+              })}
 
-            {form === 'stacked' || form === 'grouped'
-              ? points.map((point, index) => (
-                  <Bars
-                    key={point.at}
-                    point={point}
-                    series={series}
-                    grouped={form === 'grouped'}
-                    x={PAD.left + index * step}
-                    step={step}
-                    peak={peak}
-                  />
-                ))
-              : null}
+              {/* Time axis. Every nth point, plus the last one, so the reader
+                  always knows where the chart ends. */}
+              {points.map((point, index) => {
+                const isLast = index === points.length - 1;
+                if (index % stride !== 0 && !isLast) return null;
+                // Drop a regular tick that would collide with the final one:
+                // where the chart ends matters more than an even spacing.
+                const lastX = geo.centreX(points.length - 1);
+                if (!isLast && lastX - geo.centreX(index) < X_LABEL_WIDTH * 0.8) return null;
+                const x = Math.min(
+                  Math.max(geo.centreX(index), PAD.left + 18),
+                  PAD.left + plotW - 18,
+                );
+                return (
+                  <text
+                    key={`x-${point.at}`}
+                    x={x}
+                    y={HEIGHT - 10}
+                    textAnchor="middle"
+                    className="scp-chart-axis-label"
+                  >
+                    {axisTime(point.at, bucketSeconds)}
+                  </text>
+                );
+              })}
 
-            {form === 'line' || form === 'area'
-              ? series.map((entry, seriesIndex) => (
-                  <Trace
-                    key={entry.key}
-                    entry={entry}
-                    seriesIndex={seriesIndex}
-                    series={series}
-                    points={points}
-                    area={form === 'area'}
-                    centreX={centreX}
-                    y={y}
-                  />
-                ))
-              : null}
+              {form === 'stacked' || form === 'grouped'
+                ? points.map((point, index) => (
+                    <Bars
+                      key={point.at}
+                      point={point}
+                      series={series}
+                      grouped={form === 'grouped'}
+                      x={PAD.left + index * geo.step}
+                      geo={geo}
+                      peak={peak}
+                    />
+                  ))
+                : null}
 
-            {/* Hit targets last so they sit above the marks. Each spans the full
-                plot height, because a one pixel segment is not pointable. */}
-            {points.map((point, index) => (
-              <rect
-                key={`hit-${point.at}`}
-                x={PAD.left + index * step}
-                y={PAD.top}
-                width={step}
-                height={PLOT_H}
-                fill={hover === index ? 'var(--color-surface-hover)' : 'transparent'}
-                opacity={hover === index ? 0.6 : 1}
-                tabIndex={0}
-                role="presentation"
-                onMouseEnter={() => setHover(index)}
-                onMouseLeave={() => setHover(null)}
-                onFocus={() => setHover(index)}
-                onBlur={() => setHover(null)}
-              />
-            ))}
-          </>
-        )}
-      </svg>
+              {form === 'line' || form === 'area'
+                ? series.map((entry, seriesIndex) => (
+                    <Trace
+                      key={entry.key}
+                      entry={entry}
+                      seriesIndex={seriesIndex}
+                      series={series}
+                      points={points}
+                      area={form === 'area'}
+                      geo={geo}
+                    />
+                  ))
+                : null}
+
+              {points.map((point, index) => (
+                <rect
+                  key={`hit-${point.at}`}
+                  x={PAD.left + index * geo.step}
+                  y={PAD.top}
+                  width={geo.step}
+                  height={plotH}
+                  fill={hover === index ? 'var(--color-surface-hover)' : 'transparent'}
+                  opacity={hover === index ? 0.6 : 1}
+                  tabIndex={0}
+                  role="presentation"
+                  onMouseEnter={() => setHover(index)}
+                  onMouseLeave={() => setHover(null)}
+                  onFocus={() => setHover(index)}
+                  onBlur={() => setHover(null)}
+                />
+              ))}
+            </>
+          )}
+        </svg>
+      )}
 
       {hover !== null && points[hover] && form !== 'share' ? (
         <div className="scp-chart-tooltip" role="status">
@@ -247,7 +326,6 @@ export function TimeSeriesChart({
         </div>
       ) : null}
 
-      {/* Identity is never colour alone: a legend for every multi-series chart. */}
       {series.length > 1 ? (
         <div className="scp-chart-legend">
           {series.map((entry) => (
@@ -315,18 +393,17 @@ function Bars({
   series,
   grouped,
   x,
-  step,
+  geo,
   peak,
 }: {
   point: TimePoint;
   series: readonly SeriesDefinition[];
   grouped: boolean;
   x: number;
-  step: number;
+  geo: Geometry;
   peak: number;
 }): JSX.Element {
-  const slotWidth = step * 0.72;
-  const base = PAD.top + PLOT_H;
+  const slotWidth = geo.step * 0.72;
 
   if (grouped) {
     const each = Math.max(1, (slotWidth - GAP * (series.length - 1)) / series.length);
@@ -334,13 +411,13 @@ function Bars({
       <g>
         {series.map((entry, index) => {
           const value = point.values[entry.key] ?? 0;
-          const height = Math.max(value > 0 ? MIN_SEGMENT : 0, (value / peak) * PLOT_H);
+          const height = Math.max(value > 0 ? MIN_SEGMENT : 0, (value / peak) * geo.plotH);
           if (height <= 0) return null;
           return (
             <rect
               key={entry.key}
-              x={x + (step - slotWidth) / 2 + index * (each + GAP)}
-              y={base - height}
+              x={x + (geo.step - slotWidth) / 2 + index * (each + GAP)}
+              y={geo.base - height}
               width={each}
               height={height}
               fill={entry.color}
@@ -352,19 +429,19 @@ function Bars({
     );
   }
 
-  let cursor = base;
+  let cursor = geo.base;
   return (
     <g>
       {series.map((entry) => {
         const value = point.values[entry.key] ?? 0;
         if (value <= 0) return null;
-        const raw = (value / peak) * PLOT_H;
+        const raw = (value / peak) * geo.plotH;
         const height = Math.max(MIN_SEGMENT, raw - GAP);
         cursor -= height + GAP;
         return (
           <rect
             key={entry.key}
-            x={x + (step - slotWidth) / 2}
+            x={x + (geo.step - slotWidth) / 2}
             y={cursor}
             width={slotWidth}
             height={height}
@@ -383,44 +460,33 @@ function Trace({
   series,
   points,
   area,
-  centreX,
-  y,
+  geo,
 }: {
   entry: SeriesDefinition;
   seriesIndex: number;
   series: readonly SeriesDefinition[];
   points: readonly TimePoint[];
   area: boolean;
-  centreX: (index: number) => number;
-  y: (value: number) => number;
+  geo: Geometry;
 }): JSX.Element {
-  // In the area form the series stack, so each one starts where the ones below
-  // it ended; as lines they each stand on the baseline.
-  const valueAt = (index: number): number => {
-    const own = points[index]?.values[entry.key] ?? 0;
-    if (!area) return own;
-    return (
-      own +
-      series
-        .slice(0, seriesIndex)
-        .reduce((sum, below) => sum + (points[index]?.values[below.key] ?? 0), 0)
-    );
-  };
-  const baseAt = (index: number): number =>
-    area
-      ? series
-          .slice(0, seriesIndex)
-          .reduce((sum, below) => sum + (points[index]?.values[below.key] ?? 0), 0)
-      : 0;
+  const below = (index: number): number =>
+    series
+      .slice(0, seriesIndex)
+      .reduce((sum, other) => sum + (points[index]?.values[other.key] ?? 0), 0);
+  const valueAt = (index: number): number =>
+    (points[index]?.values[entry.key] ?? 0) + (area ? below(index) : 0);
 
-  const top = points.map((_, index) => `${centreX(index)},${y(valueAt(index))}`).join(' ');
+  const top = points.map((_, index) => `${geo.centreX(index)},${geo.y(valueAt(index))}`).join(' ');
 
   return (
     <g>
       {area ? (
         <polygon
           points={`${top} ${points
-            .map((_, index) => `${centreX(points.length - 1 - index)},${y(baseAt(points.length - 1 - index))}`)
+            .map((_, index) => {
+              const reversed = points.length - 1 - index;
+              return `${geo.centreX(reversed)},${geo.y(below(reversed))}`;
+            })
             .join(' ')}`}
           fill={entry.color}
           opacity={0.85}
@@ -430,14 +496,12 @@ function Trace({
       ) : (
         <polyline points={top} fill="none" stroke={entry.color} strokeWidth={2} strokeLinejoin="round" />
       )}
-      {/* Markers only when there are few enough that they read as points
-          rather than as a thicker line. */}
       {!area && points.length <= 40
         ? points.map((_, index) => (
             <circle
               key={index}
-              cx={centreX(index)}
-              cy={y(valueAt(index))}
+              cx={geo.centreX(index)}
+              cy={geo.y(valueAt(index))}
               r={4}
               fill={entry.color}
               stroke="var(--color-surface)"
@@ -453,22 +517,25 @@ function ShareArcs({
   items,
   total,
   format,
+  geo,
 }: {
   items: Array<{ entry: SeriesDefinition; total: number }>;
   total: number;
   format: (value: number) => string;
+  geo: Geometry;
 }): JSX.Element {
+  const cx = geo.width / 2;
+  const cy = PAD.top + geo.plotH / 2;
+
   if (total <= 0) {
     return (
-      <text x={VIEW_W / 2} y={VIEW_H / 2} textAnchor="middle" fill="var(--color-text-secondary)" fontSize={14}>
+      <text x={cx} y={cy} textAnchor="middle" className="scp-chart-axis-label">
         Nothing recorded in this range.
       </text>
     );
   }
 
-  const cx = VIEW_W / 2;
-  const cy = VIEW_H / 2;
-  const outer = Math.min(PLOT_H, VIEW_W) / 2 - 6;
+  const outer = Math.min(geo.plotH, geo.width) / 2 - 8;
   // A donut rather than a full pie: the hole carries the total, which is the
   // number people actually want when they reach for this form.
   const inner = outer * 0.58;
@@ -499,14 +566,7 @@ function ShareArcs({
           />
         );
       })}
-      <text
-        x={cx}
-        y={cy + 6}
-        textAnchor="middle"
-        fill="var(--color-text-primary)"
-        fontSize={20}
-        fontWeight={600}
-      >
+      <text x={cx} y={cy + 7} textAnchor="middle" className="scp-chart-centre-value">
         {format(total)}
       </text>
     </g>

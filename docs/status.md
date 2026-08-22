@@ -13,6 +13,7 @@ Reproduce with `./scripts/install.sh`, `./scripts/healthcheck.sh` and
 | --- | --- |
 | `npm run test --workspace @scp/shared` | 122 tests pass |
 | `npm run test --workspace @scp/api` | 30 tests pass |
+| `npm run test --workspace @scp/ui` | 9 tests pass: the arithmetic behind the chart axes |
 | `npm run typecheck --workspace @scp/web` | clean, strict mode |
 | `docker compose build` (prod overlay) | both images build from a plain checkout |
 | `docker compose run --rm migrate` | schema applied, bootstrap idempotent |

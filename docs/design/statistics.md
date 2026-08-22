@@ -297,6 +297,16 @@ part-to-whole stops being readable at a glance beyond that, and it is a donut
 rather than a pie so the hole can carry the total - the number people usually
 want when they reach for this form.
 
+**Both time charts carry axes.** A value axis on the left, its gridlines and
+numbers being one thing rather than decoration, and a time axis underneath whose
+labels are thinned out so they cannot collide and are only as precise as the
+bucket justifies. The scale rounds to a step a person would choose - without
+that, a chart whose peak is 1 gets the labels 0, 0, 1, 1, 1.
+
+The geometry is measured in real pixels rather than a stretched viewBox. That is
+what makes the labels the same size on every screen; a scaled box also distorts
+stroke weights and turns markers into ellipses.
+
 **Charts** are inline SVG in `@scp/ui`, not a dependency. The series palette was
 picked by running a validator rather than by eye, which turned up something
 worth recording: the design system's `--color-danger-fg` and `--color-warning-fg`
